@@ -1,0 +1,717 @@
+#' #Methods of Time Series Analysis Applied to Weather Measurements on a Wind Farm#
+
+#' ## Introduction ##
+#' The chosen source of data is a wind farm located in the North Sea
+#'  (with coords: 54.01433°NL, 6.587667°EL) denoted as LES (1y 2015-01-01 2015-12-31 cfsr) 
+#'  which comes from website http://www.vortexfdc.com/, specifically designed to provide its
+#'  users with weather data for potential wind farm sites. This specific dataset has been 
+#'  obtained (for free) from year 2015, and contains a variety of measurements, ranging from
+#' wind velocity magnitude, through the wind direction angle, temperature up to dimensionless 
+#' characteristics like  the Richardson number "Ri" which corresponds to the ratio of buoyancy
+#' over shear flow.
+#' 
+#' In the first 7 parts of this project, I focus on the analysis of a single variable, namely
+#' temperature T [°C]. Since the dataset consist of over 47 000 observations of 11 different 
+#' variables, and thus might be difficult to visualize, I've chosen to include only 
+#' the temperature measurements for each day at 12am.
+#' 
+#'---------------------------------------------------------------------------------------
+#' 
+#' ## 1. Visualization and Basic Stats ## 
+#' We begin by extracting the data from a downloaded file
+
+temperature <- read.table("vortex_TS.txt", header = T, skip = 3, 
+                          colClasses = "character")
+
+#' and tagging the 8th column with a mark "T" for temperature
+names(temperature)[8] <- c("T")
+#' then separating the time data into separate columns using the Tidyr package
+
+temperature <- tidyr::separate(data = temperature, col = YYYYMMDD, 
+                               into = c("year","month","day"), sep=c(4,6))
+temperature <- tidyr::separate(data = temperature, col = HHMM, 
+                               into = c("hour","minute"), sep=2)
+
+#' and convert the time columns to numbers:
+
+temperature <- as.data.frame(apply(temperature, 2, as.numeric))
+
+#' Create a separate array with columns: "year","month","day","hour","minute","T"
+#' filtering only the temperature at 12am each day:
+
+temp <- temperature[temperature$hour==12 & temperature$minute==0,
+                    c("year","month","day","hour","minute","T")] 
+
+#' and uniting the time columns saving them as "YYYY-MM-DD-HH-MM" dates
+
+temp <- tidyr::unite(temp, col=time, year, month, day, hour,
+                     minute, sep="-", remove=T)
+temp$time <- strptime(temp$time, format="%Y-%m-%d-%H-%M")
+lastDate <- temp$time[length(temp$time)]
+temp$time <- as.numeric(difftime(temp$time, temp$time[1], units = "days"))
+
+#'Now we can visualize the data as followed
+
+```{r basicDataPlot1, fig.width=9, fig.height=6}
+par(mfrow=c(1,1))
+plot(T ~ temp$time, temp, type="p",xlab="day", ylab="T[°C]",main="Daily temperature at 12:00",axes=F)
+lines(temp$time, temp$T,col="black")
+axis(side=1, at=seq(1, 365, 7))
+axis(side=2, at=seq(min(temp$T), max(temp$T), by=2))
+box()
+
+#' Now we can clearly see the periodic character of the time series which corresponds to the 
+#' seasonal changes in this latitude. For more details about the particular measurements we might
+#' calculate the basic characteristics of the set of values:
+
+stat <- summary(temp$T)
+stddev <- sd(temp$T, na.rm=TRUE)
+v <- as.numeric(c(stat[1],stat[6],stat[4],stat[3],stddev))
+names(v) <- c("Min.","Max.","Mean","Median","Std.Dev.")
+v
+
+#' We see that the minimum temperature does not drop far below zero even during the winter, 
+#' possibly due to warm currents in the northern Atlantic Ocean.
+#' Aside from local fluctuations, the same pattern can be expected to appear in the next 
+#' year, and in the year after that. Perhaps after several decades we might see a change in the 
+#' annual average temperature due to global warming, for instance.
+#' 
+#' Important note: the data is not 365 days long. Its last date ends in 
+
+lastDate
+
+#' making the sample a few days shorter than the standard length of a year, with
+
+length(temp$T)
+
+#' days long. However, we can expect 
+#' 
+#'-----------------------------------------------------------------------------------------
+#'    
+#' ## 2 Time Series Decomposition: Trend & Seasonal Components ##
+#'
+#' Now we proceed to make the first step in the analysis of the extracted temperature data. 
+#' It is more or less clear that we will not be able to observe any linear or exponential trends
+#' on such small dataset. 
+#' We can verify the absence of a trend by testing the series with the Mann-Kendall rank test:
+
+randtests::rank.test(temp$T)
+
+#' Which suggests that there is no significant trend in the sample as a whole. We will return to the test in 
+#' section 3. 
+#'
+#' The only clearly visible systematic components are the periodic seasonal
+#' changes due to Earth's tilt with respect to the Ecliptic plane. 
+#' Clearly, the most visible cycle will repeat with a period of 365 days. Other fractions of this cycle 
+#' might be present as well. The remaining cycles can be observed by examining the ACF (Autocorrelation Function)
+#' which can be plotted using just the `acf` command:
+
+```{r basicACFPlot2, fig.width=9, fig.height=4}
+par(mfrow=c(1,2))
+acf(temp$T, lag.max=365, main="Daily temp ACF")
+acf(temp$T, lag.max=365, type="partial",main="Daily temp PACF")
+
+#' The second plot shows a partial autocorrelation function which also accounts for lags 
+#' shorter than the given lag k, that is: `k-1` , `k-2`, ... , `2`, `1`.
+#' With common sense, one deduces that the data already has a 365-day cycle, but from the
+#' correlogram we see that other smaller cycles are present in the time series as well. 
+#' Hence we model the cycles with the following periods
+
+n <- length(temp$T)
+seasons <- c(n, n/2, n/4, n/12)
+names(seasons) <- c("S1.","S2.","S3","S4")
+seasons
+
+#' We may assume that there will be a month-long cycles which correspond to the rotation of the Moon, rather
+#' than the calendar we use:
+
+months = c(
+  "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"
+)
+```{r monthlyPlot, fig.width=10, fig.height=3}
+par(mfrow=c(1,1))
+for (month in 1:12) {
+  from = ((month - 1)*floor(seasons[4]) + 1)
+  if (month == 12) {
+    to = n;
+  } else {
+    to = (month * floor(seasons[4]));
+  }
+  seg = from:to
+  plot(x=1:length(seg), y=temp$T[seg], type="l",
+       main=paste("12:00 Temp. in ",months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[°C]", lwd=2, lty=1.5)
+}
+
+#' From now on we will separate our time series into a test part and an evaluation part. 
+#' All regression analysis will be performed on the test part. Predictions and their quality will
+#' be examined on the evaluation part. Generally the test part is taken as the first 80% of the original
+#' time series:
+
+nt <- floor(n * 8 / 10)
+temp_test <- list()
+temp_test$T <- temp$T[1:nt]
+temp_test$time <- temp$time[1:nt]
+
+temp_eval <- list()
+temp_eval$T <- temp$T[nt + 1:n]
+temp_eval$time <- temp$time[nt + 1:n]
+
+par(mfrow=c(1,1))
+plot(x=temp$time, y=temp$T, type="p", main="Test and Evaluaion Parts", xlab="time", ylab="T[°C]")
+lines(x=temp_test$time, y=temp_test$T, lwd=1.5, col="blue")
+lines(x=temp_eval$time, y=temp_eval$T, lwd=1.5, col="green")
+legend("topleft", legend=c("test","eval"),
+       col=c("blue","green"), lty=1,lwd=2 , cex=0.8)
+
+#' Now we will take the chosen seasons and regress them against the test part:
+
+model.sCos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
+                     # cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
+                     cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
+                     cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4]), temp_test)
+summary(model.sCos)
+
+#' The summary of the regression model implies that all periods in the `seasons` array 
+#' are significant. And now we can plot the residues after extracting the seasonal components
+
+```{r residPlot1, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+temp_test$sCos <- model.sCos$fitted.values
+plot(T ~ temp_test$time, temp_test,
+     main="Fitted Annual Temperature Model",xlab="day",ylab="T[°C]",axes=F)
+lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
+axis(side=1, at=seq(1, n, 7))
+axis(side=2, at=seq(min(temp_test$T), max(temp_test$T), by=2))
+lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
+box()
+temp_test$Tres <- model.sCos$residuals
+plot(x=temp_test$time, y=temp_test$Tres,
+     main="Residuals",xlab="day",ylab="res(T)[°C]",axes=F,type="l")
+axis(side=1, at=seq(1, n, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+box()
+
+#' We can see that the residuals after extracting the seasonal components still haven't 
+#' lost much of their periodic behavior. Taking a look at the residual ACF and PACF we see 
+#' that non-zero correlation extends from lag of approximately 30 up to 130 days.
+
+```{r ACFPlot2, fig.width=9, fig.height=4}
+par(mfrow=c(1,2))
+acf(temp_test$Tres, lag.max=365, main="Residual ACF")
+acf(temp_test$Tres, lag.max=365, main="Residual PACF", type="partial")
+
+#' When examining the residual ACF we notice remaining significant correlation for multiple lag
+#' values. This is possible due to remaining cyclical components which will be found as significant
+#' frequencies after Fourier analysis in the next section.
+#'
+#'---------------------------------------------------------------------------------------
+#'             
+#' ## 3 Time Series Decomposition: Cyclical Components & Randomness Tests on Residuals ##
+#' ### 3.1 Cyclical Components and Fourier Analysis on Time Series ###
+#'
+#' Now we continue with another step in the decomposition of the original time series.
+#' We separate the remaining oscillations via discrete Fourier analysis. A continuous spectrum
+#' is generated from the ACF using the following function:
+
+SpecDens <- Vectorize(  
+  FUN = function(omega, acov=NULL, data=NULL) {
+    if(is.null(acov)) {
+      if(is.null(data)) {
+        stop("Please provide either vector of autocovariance function values or time series data.")
+      }
+      else acov <- acf(data, type="covariance", plot=FALSE)
+    }
+    k <- seq(to=length(acov)-1)
+    ( acov[1] + 2*sum(acov[-1]*cos(k*omega)) ) / (2*pi)
+  },
+  vectorize.args = "omega"
+)
+
+```{r SpecPlot2, fig.width=9, fig.height=4}
+par(mfrow=c(1,2))
+temp_test.ACF <- as.numeric( acf(temp_test$Tres, type="covariance", plot=FALSE)$acf )
+plot(function(x) SpecDens(x, acov=temp_test.ACF), from=2*pi/(nt),
+     to = 2 * pi / 4, xlab="frequency", ylab="spectral density")
+plot(function(x) SpecDens(2*pi / x, acov=temp_test.ACF), from=4, 
+     to = nt, xlab="period", ylab="spectral density")
+
+#' the figure on the right provides a better image of the (continuous) distribution of individual
+#' components with periods of oscillation. The hidden frequencies are obtained using discrete
+#' Fourier transform (more specifically Fast Fourier Transform):
+
+```{r SpecDens,fig.width=11, fig.height=3.5}
+temp_test.FFT <- abs(fft(temp_test$Tres)) # Fourier transform
+omega <- 2 * pi * seq(0, nt / 2 - 1) / nt
+period <- 2 * pi / omega
+par(mfrow=c(1,1))
+plot(period, temp_test.FFT[seq_along(period)], main="Residual Spectral Density", 
+     ylab="density", xlab="period (days)", type="h", log="x")
+
+#' which we can then sort by density, and display the ones with the most weight:
+
+spectrum <- data.frame(f=temp_test.FFT[seq_along(omega)], omega=omega, period=period)
+spectrum <- spectrum[order(spectrum$f, decreasing = TRUE), ]
+head(spectrum, 10)
+
+#' One reliable way to find the most significant frequencies is by using Fischer's Periodicity 
+#' Test:
+
+signif <- cbind(spectrum[0,], 
+                  data.frame(test.stat = numeric(0), crit.val = numeric(0)))
+spec <- spectrum
+repeat {
+  test <- data.frame(test.stat = spec$f[1]/sum(spec$f),
+                     crit.val = 1 - (0.05/nrow(spec))^(1/(nrow(spec)-1)))
+  if(test$test.stat > test$crit.val) {
+    signif <- rbind(signif, cbind(spec[1,],test));
+    spec <- spec[-1,]
+  } else break
+}
+rm(spec, test)
+signif
+
+#' As it appears, Fischer's Test yields no significant frequency, but since we
+#' observe a sequence of significant frequencies that correspond with the ACF shown earlier.
+#' Nonetheless, we assume that, say, the first 10 might contribute to the oscillatory behavior
+#' of the time series. Thus we take:
+
+( signif <- head(spectrum, 10) )
+
+#' which we can then determine more precisely using the continuous spectral density:
+
+newsignif <- sapply(
+  signif$omega,
+  function(x) optimize(SpecDens, 
+                       interval = x + c(1,-1) * pi / nt, 
+                       acov = temp_test.ACF, 
+                       maximum = T  )$maximum)
+( newSignifs <- cbind(signif, data.frame(omega_sm = newsignif, 
+                                       period_sm = 2 * pi / newsignif)) )
+
+
+#' We can try to complete the regression using the first 3 periods with their fractions, but as
+#' it turns out, only the first one with its half is significant.
+
+( periods <- head(newSignifs, 3)$period_sm )
+
+model.cCos <- lm(Tres ~ cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
+                     cos(2*pi*temp_test$time/periods[1]*2) + sin(2*pi*temp_test$time/periods[1]*2) #+
+                   #cos(2*pi*temp_test$time/periods[2]) + sin(2*pi*temp_test$time/periods[2]) +
+                   #cos(2*pi*temp_test$time/periods[3]) + sin(2*pi*temp_test$time/periods[3])
+                   ,
+                 temp_test)
+summary(model.cCos)
+ 
+#' We can then model the residues `temp_test$Tres` with the given `cCos` model:
+
+```{r cyclicalRegress,fig.width=10, fig.height=4}
+par(mfrow=c(1,1))
+temp_test$cCos <- model.cCos$fitted.values
+plot(x=temp_test$time, y=temp_test$Tres,
+     main="Temperature (Residues)",xlab="day",ylab="T[°C]",axes=F)
+axis(side=1, at=seq(1, nt, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+lines(x=temp_test$time, y=temp_test$cCos, col="blue", lwd=2)
+box()
+
+#' and combine the seasonal and cyclical components in a regression against the original data
+
+temp_test$Tres <- temp_test$T
+model.ScosFinal <- lm(Tres ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
+                        # cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
+                        cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
+                        cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4]) +
+                        # cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
+                        cos(2*pi*temp_test$time/periods[1]*2) + sin(2*pi*temp_test$time/periods[1]*2),
+                      temp_test)
+summary(model.ScosFinal)
+
+temp_test$ScosFinal <- model.ScosFinal$fitted.values
+```{r finalRegress,fig.width=10, fig.height=5}
+par(mfrow=c(1,1))
+plot(T ~ temp_test$time, temp_test,
+     main="Modeling Seasonal and Cyclical Components",xlab="day",ylab="T[°C]",axes=F)
+lines(temp_test$time, temp_test$sCos, col="red", lwd=2)
+lines(temp_test$time, temp_test$ScosFinal, col="blue", lwd=2)
+axis(side=1, at=seq(1, nt, 7))
+axis(side=2, at=seq(round(min(temp_test$T), digits=1), round(max(temp_test$T), digits=1), by=2))
+box()
+legend("topleft", legend=c("seasonal","seasonal + Fourier"),
+       col=c("red","blue"), lty=1,lwd=2 , cex=0.8)
+
+temp_test$Tres <- model.ScosFinal$residuals
+
+```{r finalResidues,fig.width=10, fig.height=3.5}
+plot(x=temp_test$time, y=temp_test$Tres, type="l",
+     main="Residuals After Seasonal & Cyclical",xlab="day",ylab="T[°C]",axes=F)
+axis(side=1, at=seq(1, nt, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+box()
+
+#'
+#'---------------------------------------------------------------------------------------
+#'
+#' ### 3.2 Radomness Tests on Residuals After Extracting Systematic Components ###
+#'
+#' Even though the original temperature time series has no trend, the residuals
+#' of the resultant time series with extracted both seasonal (and cyclical) components, that is: the systematic
+#' components might still contain some cyclical components. To verify that the residuals are a trajectory of a
+#' (stationary) stochastic process we use the, so called, "Randomness tests":
+#' 
+#' 1.) Durbin-Watson autocorrelation test
+#' 
+#' 2.) Zero ACF test
+#' 
+#' 3.) Signed Rank Test 
+#' 
+#' 4.) Spearman Rho Test
+#' 
+#' 5.) Turning Point Test 
+#' 
+#' 6.) Median Test 
+#' 
+#' 
+#' We begin by examining the residues after extracting all the systematic components in model.ScosFinal, as well as their
+#' ACF:
+
+```{r resPlot1, fig.width=10, fig.height=5}
+par(mfrow=c(1,2))
+plot(x=temp_test$time, y=temp_test$Tres,
+     main="Temperature",xlab="day",ylab="T[°C]",axes=F, type="l")
+axis(side=1, at=seq(1, 356, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+box()
+
+acf(temp_test$Tres, lag.max=365, main="Residual ACF")
+
+#' As we can clearly see, the residues still have a hidden oscillatory component with a period of around 30 days.
+#' Hence we move ahead to test their randomness via the given tests.
+#' 
+#' #### 3.2.1 Durbin-Watson Test ####
+#' The null hypothesis of the D-W test states that the residues of a time series after a least squares regression are 
+#' uncorrelated, which is put against the alternative hypothesis: that the residuals follow a 1st order autoregressive (AR)
+#' process (see section 5.). 
+
+#' We can either use the inbuilt function in the "car" package:
+
+#install.packages("car")
+
+
+car::durbinWatsonTest(temp_test$Tres)
+
+#' or write our own function:
+
+# only unique values in the time series will be considered
+values1 <- as.numeric(temp_test$Tres)
+values2 <- unique(values1)
+
+nv <- length(values2)
+den <- sum(values2 ^ 2)
+( DW <- (sum((values2[2:nv] - values2[1:(nv - 1)])^2))/den )
+
+#' The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number
+#' k of the terms of linear regression, in our case k = 4 and size = 265, hence in a 5% confidence interval:
+
+#' dL         dU
+# 1.77344  1.82010 (n = 260)
+# 1.77808  1.82300 (n = 270)
+
+dL <- 0.5 * (1.77344 + 1.77808)
+dU <- 0.5 * (1.82010 + 1.82300)
+
+if(DW <= dL) {
+  message("Alternative Hypothesis: Positive Autocorrelation!")
+} else if (4 - dL < DW && DW < 4) {
+  message("Alternative Hypothesis: Negative Autocorrelation!")
+} else if (dU < DW && DW < 4 - dU) {
+  message("Null Hypothesis: No Autocorrelation!")
+}
+
+#' We can obtain p-values using the model matrix of the `ScosFinal` model, simulating the stochastic process
+#' `Y ~ X - 1`, computing a DW-statistic for each simulation, and counting the number of `DW < simDW`:
+
+X <- model.matrix(model.ScosFinal)
+reps = 1000
+sig <- var(values2)
+mu <- model.ScosFinal$fitted.values
+Y <- matrix(rnorm(nv*reps, 0, sig), nv, reps) + matrix(mu, nv, reps)
+E <- residuals(lm(Y ~ X - 1))
+simDW <- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])^2) / sum(e ^ 2)) )
+
+( p_val <- (sum(DW > simDW)) / reps ) # for negative correlation
+( p_val <- (sum(DW < simDW)) / reps ) # for positive correlation
+( p_val <- 2*min(p_val, 1 - p_val) ) # for two-sided correlation
+
+#' The "rho" parameter appearing in the test is the, so called, autocorrelation coefficient for which -1 < rho < 1
+#' and the null hypothesis translates to verifying that rho = 0 for some confidence interval. 
+#' 
+#' We can model correlation for other lags as well. Aside from the residual vector as an argument, the `durbinWatsonTest`
+#' can process the entire regression model. It also has a `max.lag` argument which tells the function which lag to test for
+#' when using a model `Y ~ X - lag`. Parameter `alternative` also tells the function which type of correlation to test for:
+
+car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="two-sided")
+car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="negative")
+car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="positive")
+
+#' We see that DW tests have zero p-value up to lag 3. This means that we could be dealing with an AR process of order 3 or
+#' higher.
+#'
+#' #### 3.2.2 Zero ACF Test ####
+#' The test reduces to just finding all the ACF lags k with ACF(k) > 2/sqrt(n) where n is the length of the time series.
+
+```{r acfPlot1, fig.width=11, fig.height=5}
+par(mfrow=c(1,1))
+ACF <- acf(temp_test$Tres, lag.max=nt, plot=F)
+lags <- which(abs(acf(temp_test$Tres, lag.max=nt, main="Residual ACF")$acf[-1]) > 2/sqrt(nt))
+lagValues <- numeric()
+for(i in 1:length(lags))
+{
+  lagValues[i] <- ACF$acf[lags[i] + 1]
+  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
+}
+lags
+
+#' The result shows that the residual ACF exceeds the zero-value for the lags shown above.
+#'
+#' #### 3.2.3 Signed Rank Test ####
+#' This is a non-parametric test for the presence of a trend in the residual time series, based on the analysis 
+#' of differences of sets of three consecutive terms. The null hypothesis states that the resulting statistic is
+#' asymptotically normally distributed.
+#' using a custom approach:
+
+# consecutive values with zero difference have to be omitted
+dist_bool <- c(T,as.logical(diff(values2)))
+Tt <- c()
+for (i in 1:length(dist_bool)) 
+{
+  if (dist_bool[i]) Tt <- c(Tt, values2[i])
+}
+
+#now the ranking of differences
+ranks <- c()
+for (i in 2:length(Tt)) 
+{
+  if (Tt[i-1] < Tt[i]) ranks[i - 1] <- 1
+  else 
+  {
+    ranks[i - 1] <- 0
+  }
+}
+
+rank_sum <- sum(ranks)
+rank_mean <- (length(Tt) - 1) / 2
+rank_var <- (length(Tt) + 1) / 12
+test_stat <- (rank_sum - rank_mean) / sqrt(rank_var)
+
+alpha = 0.05
+
+if (test_stat < qnorm(alpha) || test_stat > qnorm(1 - alpha)) {
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Alternative Hypothesis! test_stat is not normally distributed for n-->infty ! Trend detected."))
+} else {
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Null Hypothesis! test_stat is normally distributed for n-->infty ! No trend detected."))
+}
+
+#' And we can compare the results with an inbuilt function from the "randtests" package:
+
+require(randtests)
+randtests::difference.sign.test(temp_test$Tres)
+
+#' So as it appears, for a 5% confidence interval the residues still contain a trend. Substituting 0.01 for alpha, however,
+#' gives an alternative hypothesis as a result. Thus the signed-rank test verifies its null hypothesis for 0.1 > alpha > 0.05.
+#' This is probably caused by cutting off a portion of the data at the end of an annual sample.
+#'
+#'
+#' #### 3.2.4 Spearman Rho Test ####
+#' Another non-parametric test for the presence of a trend using concordant/discordant pairs of values can be implemented as:
+
+#order the unique values in an increasing order
+
+temp_ordered <- values2[order(values2, decreasing=F)]
+q <- numeric()
+
+for (i in 1:length(values2)) 
+{
+  q[i] <- match(c(values2[i]), temp_ordered) 
+}
+
+# and for the spearman rho coefficient
+nv <- length(values2)
+sum_term <- numeric()
+for (i in 1:length(values2)) 
+{
+  sum_term[i] <- (i - q[i])^2 
+}
+
+rho <- 1 - (6 / (nv * (nv * nv - 1))) * sum(sum_term)
+
+test_stat <- abs(rho) * sqrt(nv - 1)
+
+if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) 
+{
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Alternative Hypothesis! test_stat is not normally distributed for n-->infty ! Trend detected."))
+} else {
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Null Hypothesis! test_stat is normally distributed for n-->infty ! No trend detected."))
+}
+
+#' And using the inbuilt `cor.test`:
+
+# our rho:
+rho
+
+cor.test(temp_test$time, temp_test$Tres, method="spearman")
+
+#' Clearly both the Signed-Rank, and Spearman Rho tests show that the residual time series is a realisation of independent 
+#' identically distributed random variables.
+#'
+#' #### 3.2.5 Turning Point Test ####
+#' This and the following test are both tests for the presence of (previously unfiltered) periodic components in the 
+#' residual time series. Similarily to the signed rank test, it examines sets of three consecutive terms, except this time
+#' looking for so called 'turning points', that is: triplets of values in which the middle value is locally extremal 
+#' (in that triplet). The presence and periodic regularity of turning points implies oscillatory behavior or the residues.
+
+dist_bool <- c(T,as.logical(diff(values2)))
+
+#removing duplicate consecutive values
+Tt <- c()
+for (i in 1:length(dist_bool)) 
+{
+  if (dist_bool[i] == TRUE)  Tt <- c(Tt, values2[i])
+}
+
+# marking consecutive triplets with value 0 for upper and lower turning points
+# and 1 otherwise
+
+Mt <- c()
+for (i in 2:(length(Tt) - 1)) 
+{
+  if ( ((Tt[i - 1] < Tt[i]) && (Tt[i] > Tt[i + 1])) || 
+       ((Tt[i - 1] > Tt[i]) && (Tt[i] < Tt[i + 1])) ) 
+  {
+    Mt[i - 1] <- 1
+  } else {
+    Mt[i - 1] <- 0
+  }
+}
+
+M_sum <- sum(Mt)
+M_mean <- 2 * (length(Tt) - 2) / 3
+M_var <- (16 * length(Tt) - 29) / 90
+
+test_stat <- (M_sum - M_mean) / sqrt(M_var)
+
+if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) {
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Alternative Hypothesis! Periodic components detected."))
+} else {
+  message(paste("test_stat = ",test_stat," alpha = ", alpha,
+                " ::: Null Hypothesis! No periodic components detected."))
+}
+
+( p_value <- pnorm(test_stat) ) # positive serial correlation
+( p_value <- 2*min(p_value, 1 - p_value)) # (two-sided) non-randomness
+( p_value <- 1 - p_value ) # negative serial correlation
+
+#' And via the inbuilt function from randtests:
+
+randtests::turning.point.test(temp_test$Tres, alternative="left.sided")
+randtests::turning.point.test(temp_test$Tres, alternative="two.sided")
+randtests::turning.point.test(temp_test$Tres, alternative="right.sided")
+
+#' we, apparently, obtain the same result. 
+#' 
+#' #### 3.2.6 Median Test ####
+#' This is another non-parametric test for the presene of periodic components which essentially divides the sample values
+#' into distinct groups each of which corresponds to a group of values that are unilaterally above or below the sample median,
+#' meaning that if the i-th value and its predecessors lie above the median, and the (i+1)-th value lies below, for instance, 
+#' the (i+1)-th value is a member of a new group of values which lie below the sample median.
+
+U <- temp_test$Tres
+temp_med <- median(U)
+P <- 0; m <- 0
+for (i in 1:nt)
+{
+  if (U[i] != temp_med)
+  {
+    if (i == 1)
+    {
+      P <- P + 1
+      if (U[i] > temp_med) m <- m + 1
+    }
+    else if (i > 1 & (U[i] > temp_med) & (previous < temp_med)) #lower to upper
+    {
+      P <- P + 1
+      m <- m + 1 #counting all above median
+    }
+    else if (i > 1 & (U[i] < temp_med) & (previous > temp_med)) #upper to lower
+    {
+      P <- P + 1
+    }
+    previous <- U[i]
+  }
+}
+
+```{r medianPlot1, fig.width=11, fig.height=5}
+par(mfrow=c(1,1))
+plot(temp_test$Tres ~ temp_test$time, main="Median", ylab="res")
+abline(h=temp_med, col="green")
+for(i in 1:length(temp_test$Tres))
+{
+  if (U[i] != temp_med )
+  {
+    if (U[i] > temp_med)
+    {
+      segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "red", lwd=1)
+    }
+    else
+    {
+      segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "blue", lwd=1)
+    }
+  }
+}
+
+ZStatistic <- (P - (m + 1)) / sqrt(m * (m - 1) * (2 * m - 1))
+
+
+if (ZStatistic > qnorm(alpha / 2) && ZStatistic < qnorm(1 - alpha/2))
+{
+  message(paste("qnorm(",alpha/2,") < Zstat < qnorm(",1 - alpha/2,")"))
+  message("", round(qnorm(alpha / 2), digits=2)," < ", round(ZStatistic, digits=2)," < ",round(qnorm(1 - alpha/2), digits=2),"")
+  message("Null Hypothesis! Randomness!")
+  if (m <= 100) cat("Note: 'above median' group count: m = ", m," <= 100")
+} else {
+  message(paste("qnorm(",alpha/2,") <= Zstat || Zstat >= qnorm(",1 - alpha/2,")"))
+  message("", round(qnorm(alpha / 2), digits=2)," <= ", round(ZStatistic, digits=2)," >= ",round(qnorm(1 - alpha/2), digits=2),"")
+  message("Alternative Hypothesis! Non-Randomness ---> Periodicity!")
+  if (m <= 100) cat("Note: 'above median' group count : m = ", m," <= 100")
+}
+
+( p_value <- pnorm(ZStatistic) ) # positive serial correlation
+( p_value <- 2*min(p_value, 1 - p_value)) # (two-sided) non-randomness
+( p_value <- 1 - p_value ) # negative serial correlation
+
+# library(signmedian.test) # NOTE: signmedian.test does not do the same thing as the median test above
+# signmedian.test(temp_test$Tres, alternative="two.sided")
+# signmedian.test(temp_test$Tres, alternative="greater")
+# signmedian.test(temp_test$Tres, alternative="less")
+
+#' The median test implies randomness of the residual time series, yet its results are irrelevant for group count
+#' `m <= 100`. The result of the Durbin-Watson Test implies that the residual time series may be a trajectory of an AR(3) 
+#' (auto-regressive) process, and the residual ACF, of course, shows non-zero correlation for multiple lags. The signed-rank
+#' test "almost" implies that the residues do not have a trend (more specifically, for `alpha = 0.1`), and the following
+#' Spearman rho test does so as well. The presence of a trend may be caused by cutting off the tail of the annual series.
+#' The Turning Point test, with the Median test which  followed show that the time series also contains unfiltered periodic
+#' components, even though the Median test may be inconclusive since the group count m of groups of 
+#' values above median is less than 100.
+#' 
+#'  Therefore, from all the tests carried out in this section, we can conclude the following:
+#' 
+#' - The residual time series may be a trajectory of an AR(3) (auto-regressive) process
+#' - There is no trend present in the residual time series
+#' - And finally the unfiltered periodic components have to be accounted for via other methods
+#'
+#'
+#' ---------------------------------------------------------------------------------------------------------------
