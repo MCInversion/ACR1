@@ -715,3 +715,304 @@ if (ZStatistic > qnorm(alpha / 2) && ZStatistic < qnorm(1 - alpha/2))
 #'
 #'
 #' ---------------------------------------------------------------------------------------------------------------
+#' 
+#' ## 4. Introducing ARMA Models and the Hannan-Rissanen Procedure ## 
+#'
+#' In general, a stationary (only lag-dependent) stochastic process is determined by p auto-regressive and q moving-average
+#' terms. The auto-regressive terms (as by the name) determine the value of the stochastic process at each time from its past
+#' values from up to p steps back, and the moving-average terms on the other hand imply dependence on a random process, such as
+#' the white noise, for instance, up to q time steps back. 
+#' 
+
+```{r newRegressionAcf, fig.width=11, fig.height=5.5}
+par(mfrow=c(1,3))
+plot(x=temp_test$time, y=temp_test$Tres, main="Residues",xlab="day",ylab="T[°C]",axes=F, type="l")
+axis(side=1, at=seq(1, 365, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+box()
+
+ACF <- acf(temp_test$Tres, lag.max=365, plot=F)
+n<-length(temp_test$Tres)
+lags <- which(abs(acf(temp_test$Tres, lag.max=365, main="Residual ACF")$acf[-1]) > 2/sqrt(n))
+lagValues <- numeric()
+for(i in 1:length(lags)) {
+  lagValues[i] <- ACF$acf[lags[i] + 1]
+  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
+}
+acf(temp_test$Tres, lag.max=365, main="Residual PACF", type="partial")
+ 
+#' Based on the result of the Durbin-Watson test, the additional oscillations
+#'  (which can still be seen in red non-zero values of the last residual ACF) should be accounted for by modelling the 
+#'  residues by a suitable AR(p) model (or ARMA(p,q) in general). The process for determining the proper orders p and q 
+#'  of suitable ARMA model candidates is called the Hannan-Rissanen Procedure and it consists of multiple steps.
+#'
+#' First, we need to figure out whether the residues need additional transformation, so that they could be properly modelled.
+#' For that we test whether:
+#' 
+#' (a) the time series has zero mean value
+#' 
+#' (b) the time series is stationary
+#' 
+
+mean(temp_test$Tres)
+
+#' So the mean value approximation is close to zero, and the stationarity can be tested using the following test:
+
+suppressMessages(require(tseries))
+adf.test(temp_test$Tres, alternative="explosive") # Augmented Dickey-Fuller
+
+#' According to the Augmented Dickey-Fuller tests the residuals the stationarity hypothesis is rejected.
+#' However, since The tests have low statistical power in that they often cannot distinguish between true unit-root processes and 
+#' near unit-root processes. This is called the "near observation equivalence" problem.
+#'
+#' ### 4.1. The Hannan-Rissanen Procedure ###
+#' 
+#' First, we need to set the maximum values for lag parameters based on the significant lags in residual ACF and PACF.
+#' It will be easier to do so in a combined plot:
+
+```{r plot03, echo=T, fig.width=8, fig.height=4}
+par(mfrow=c(1,1))
+acf(temp_test$Tres, ylab="(P)ACF", lag.max=100, main="Comparison of Residual ACF & PACF")
+tmp <- pacf(temp_test$Tres, plot=F, lag.max=100)
+points(tmp$lag+0.3, tmp$acf, col="red", type = "h")
+legend("topright", legend=c("ACF","PACF"), col = c("black","red"), lty=c(1,1))
+
+#' The partial correlogram (red) shows that the most significant correlations are for lags `L = 1`, and `L = 40`.
+#' The second lag, however, does not exceed the zero region nearly as much as `L = 1`. It is then reasonable to assume
+#' that the most viable model will be of AR order `p = 1`. Hence:
+
+kmax = 60; pmax = 40; qmax = 40;
+
+#' The Yule-Walker method based on solving regression equations against an increasing basis of AR terms can be done
+#' through the inbuilt `ar()` function which automatically finds the model with the lowest AIC (Akaike's Information Criterion). 
+#' And by plotting the `$aic` parameter we obtain differences `AIC_min - AIC_k` for all models.
+
+model <- list()
+model$ar.yw <- ar(temp_test$Tres, order.max=kmax)
+
+#' Plotting the differences dAIC we notice that the highest drop in `dAIC` comes after `L=1` and then a much smaller 
+#' drop follows after `L=15` and `L=40` after that. We can determine the maximum order `k` from the lags where this drop
+#' in `dAIC` occurs.
+#' An alternative to this approach is determining the AR order `p` from the residual variances:
+
+```{r plot05, echo=T, fig.width=9.5, fig.height=4}
+par(mfrow=c(1,2))
+plot(0:(length(model$ar.yw$aic)-1), xlab="p", model$ar.yw$aic, ylab="dAIC", main="Differences in AIC")
+rbind(coef=model$ar.yw$ar, se=sqrt(diag(model$ar.yw$asy.var.coef))) 
+tmp <- sapply(1:kmax, function(x) ar(temp_test$Tres, aic=F, order.max=x)$var.pred)
+plot(tmp, xlab="p", ylab="sigma^2", main="Residual variances")
+
+#' The plot suggests that the highest order of the AR process should be around
+#' `p = 40`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm.
+#' For the sake of saving computation time, however, we choose the following maximum order parameters:
+#'    
+kmax = 41; pmax = 5; qmax = 20;
+
+#LongAR method implementation:
+LongAR = function(tser, k, p, q) {
+  if (!is.ts(tser)) {
+    tser = ts(tser)
+  }
+  
+  tt <- data.frame(x=tser)
+  tt$z <- ar.ols(tt$x, aic=F, order.max=k)$resid
+  tt$z[is.na(tt$z)] <- 0
+  
+  # suppressMessages(library(dynlm))
+  
+  if (p > 0 & q > 0)  outmodel <- dynlm(x ~ L(x, 1:p) + L(z, 1:q), tt)
+  else if (p > 0 & q == 0) outmodel <- dynlm(x ~ L(x, 1:p), tt)
+  else if (q > 0 & p == 0) outmodel <- dynlm(x ~ L(z, 1:q), tt)
+  else warning("LongAR::error! invalid order p,q")
+  
+  outmodel
+}
+
+# a method for returning model's AIC (Akaike's Information Criterion) and BIC (Bayesian Information Criterion)
+# with a changeable parameter
+InfCrit = function(ml_model, type="AIC") {
+  if (type=="AIC") {
+    AIC(ml_model)
+  } else if (type=="BIC") {
+    BIC(ml_model)
+  } else {
+    warning("Invalid type (AIC or BIC)", call=F)
+  }
+}
+
+
+#determine the model's AIC using an inbuilt function ar()
+
+AICs <- ar(temp_test$Tres, order.max=kmax)$aic
+
+# find minimal AIC for pmax <= p <= kmax
+minAIC <- min(AICs[pmax:kmax])
+for (k in pmax:kmax) {
+  if (AICs[k] == minAIC) {
+    korder <- k
+    break
+  }
+}
+
+( k <- korder )
+
+models.arma <- list() 
+
+suppressMessages(require(dynlm))
+models.arma[[paste(1,0,sep=",")]] <- LongAR(temp_test$Tres, k, 1, 0)
+models.arma[[paste(0,1,sep=",")]] <- LongAR(temp_test$Tres, k, 0, 1)
+
+for(p in 1:pmax) {  
+  for(q in 1:qmax) {
+    models.arma[[paste(p,q,sep=",")]] <- LongAR(temp_test$Tres, k, p, q)
+  }
+}
+
+bic <- cbind(
+  BIC = sapply(models.arma, function(x) InfCrit(x, type="BIC")),
+  AIC = sapply(models.arma, function(x) InfCrit(x, type="AIC"))
+)
+bic <- bic[order(bic[,"BIC"]),]
+
+head(bic, n=5)
+
+#' Now we have 5 ARMA models with the lowest BIC with orders "p,q".
+
+bestArma <- head(bic, n=5)
+orders <- rownames(bestArma)
+topModels <- list() # here I put the top models marked by their orders "p,q" as a key
+
+for (j in 1:length(orders)) {
+  key <- orders[[j]]
+  topModels[[key]] <- models.arma[[key]]
+}
+
+( bestArma <- cbind(bestArma, topModels) ) #checking if the list contains models
+#and then accessing them in the following way:
+bestArma[[1,3]] #first in the list and the third column for the model itself
+
+
+#' ### 4.2. Adjusting the Regression Coefficients Using the Maximum Likelihood Estimate ###
+#' 
+#' The Maximum Likelihood Estimate (MLE) optimizes the, so called, likelihood-function with respect to
+#' the regression coefficients. One can find estimates using the Residual Square Sum (RSS). 
+#' We will optimize the model parameters via an inbuilt function arima, specifying parameter `method = "ML"`
+#' and also using the former `dynlm`-type model and directly calculating the RSS.
+
+MaxLikelihoodOptim = function (tmpmodel, use_arima=TRUE) {
+  params <- names(tmpmodel$coefficients)
+  ( p <- sum(grepl("x",params)) )
+  ( q <- sum(grepl("z",params)) )
+  
+  pars0 <- tmpmodel$coefficients
+  
+  #inbuilt function
+  if (use_arima) {
+    coefs <- arima(temp_test$Tres, order = c(p, 0, q), 
+                   init=c(pars0[-1], pars0[1]), method = "ML", transform.pars = F)$coef
+    
+    # making the intercept coefficient first in the list
+    intersect <- coefs[length(coefs)]
+    coefs <- coefs[1:(length(coefs)-1)]
+    coefs <- c(intersect, coefs)
+    
+    return(coefs)
+  } else {
+    #other version
+    qmp <- max(0,q - p)
+    x <- as.numeric(temp_test$Tres)
+    ntest <- length(x)
+    
+    #residual square sum
+    RSS = function(pars) {
+      z <- rep(0,length(x) + qmp)
+      for(i in (p + 1):ntest) {
+        xz <- c(1, x[i:(i - p)], z[(i:(i - q)) + qmp])
+        z[i + qmp] <- x[i] - c(append(head(pars, n = p + 1), 0, after = 1), 0, tail(pars, n = q)) %*% xz
+      }
+      z <- z[-(1:(p + qmp))]
+      sum(z^2)
+    }
+    
+    optim(pars0, RSS)$par
+  }
+}
+
+#model comparison function
+CompareModels = function(models) {
+  orders <- rownames(models)
+  models <- bestArma
+  
+  output <- list()
+  
+  for (i in 1:length(orders)) {
+    HannanRissanen_Result <- models[[i,3]]$coefficients
+    MLE_using_ARIMA <- MaxLikelihoodOptim(models[[i,3]])
+    MLE_not_ARIMA <- MaxLikelihoodOptim(models[[i,3]], use_arima=F)
+    output[[ orders[[i]] ]] <- cbind(HannanRissanen_Result, MLE_using_ARIMA, MLE_not_ARIMA)
+  }
+  
+  output
+}
+
+( comparison <- CompareModels(bestArma) )
+
+#changing model coefficients
+OptimizeModels = function (models, use_arima=F) {
+  orders <- rownames(models)
+  
+  for (i in 1:length(orders)) {
+    if (use_arima) {
+      result_coeffs <- MaxLikelihoodOptim(models[[i,3]])
+    } else {
+      result_coeffs <- MaxLikelihoodOptim(models[[i,3]], use_arima=F)
+    }
+    
+    models[[i,3]]$coefficients <- result_coeffs
+    
+  }
+  models
+}
+
+newBestArma <- OptimizeModels(bestArma, use_arima=F)
+
+# checking if the coefficients were changed
+bestArma[[5,3]]$coefficients
+newBestArma[[5,3]]$coefficients
+
+#' ### 4.3. Plotting the Resulting Models With their Residuals  ###
+
+```{r plot11csaa, echo=T, include=T, fig.width=9, fig.height=6}
+par(mfrow=c(2,2))
+
+for (i in 1:5) {
+  plot(temp_test$Tres, type="p", main=paste("ARMA(",orders[[i]],")"), ylab="T")
+  lines(newBestArma[[i,3]]$fitted.values, col="blue")
+  plot(newBestArma[[i,3]]$residuals, main=paste("ARMA(",orders[[i]],") residuals"), ylab="res")
+}
+
+#' ### 4.4. Plotting the Resulting Models In the Original Time Series ###
+
+```{r plot1212, echo=T, fig.width=8, fig.height=4}
+par(mfrow=c(1,1))
+n <- length(model.ScosFinal$fitted.values)
+for(i in 1:5) {
+  o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+  m <- length(newBestArma[[i,3]]$fitted.values)
+  plot(temp$T[1:m], type="p", main=paste("Systematic lm + ARMA(",orders[[i]],")"), xlab="day",ylab="T")
+  
+  syst_fit <- model.ScosFinal$fitted.values[1:m]
+  lines(syst_fit, col="red", lwd=2)
+  lines(newBestArma[[i,3]]$fitted.values + syst_fit, col="blue", lwd=2)
+  legend("topleft", legend=c("(1): Seasonal & Cyclic components", paste("(2): (1) + ARMA(",orders[[i]],")")),
+         col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
+}
+
+#'
+#' The Hannan-Rissanen procedure with maximum orders: kmax = 41, pmax = 5, and qmax = 20, determined the optimal ARMA models
+#' to be: 
+row.names(newBestArma)
+#' Combining the systematic components, i.e.: the seasonal and cyclical 
+#' components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part
+#' of the original time series. The evaluation part will be used in the following section where we will test the given models
+#' and carry out single-step predictions.
