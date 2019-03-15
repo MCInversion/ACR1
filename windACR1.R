@@ -76,16 +76,6 @@ v
 #' year, and in the year after that. Perhaps after several decades we might see a change in the 
 #' annual average temperature due to global warming, for instance.
 #' 
-#' Important note: the data is not 365 days long. Its last date ends in 
-
-lastDate
-
-#' making the sample a few days shorter than the standard length of a year, with
-
-length(temp$T)
-
-#' days long. However, we can expect 
-#' 
 #'-----------------------------------------------------------------------------------------
 #'    
 #' ## 2 Time Series Decomposition: Trend & Seasonal Components ##
@@ -118,7 +108,7 @@ acf(temp$T, lag.max=365, type="partial",main="Daily temp PACF")
 #' Hence we model the cycles with the following periods
 
 n <- length(temp$T)
-seasons <- c(n, n/2, n/4, n/12)
+seasons <- c(365, 365/2, 365/4, 365/12)
 names(seasons) <- c("S1.","S2.","S3","S4")
 seasons
 
@@ -142,6 +132,8 @@ for (month in 1:12) {
        main=paste("12:00 Temp. in ",months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[°C]", lwd=2, lty=1.5)
 }
 
+#' The monthly data do not seem to have a repeating pattern. Hence we will only consider the annual 365-day period.
+#' 
 #' From now on we will separate our time series into a test part and an evaluation part. 
 #' All regression analysis will be performed on the test part. Predictions and their quality will
 #' be examined on the evaluation part. Generally the test part is taken as the first 80% of the original
@@ -163,16 +155,17 @@ lines(x=temp_eval$time, y=temp_eval$T, lwd=1.5, col="green")
 legend("topleft", legend=c("test","eval"),
        col=c("blue","green"), lty=1,lwd=2 , cex=0.8)
 
-#' Now we will take the chosen seasons and regress them against the test part:
+#' Now we will take the chosen season and regress them against the test part:
 
-model.sCos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
-                     # cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
-                     cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
-                     cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4]), temp_test)
+model.sCos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) #+
+                     #cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
+                     #cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
+                     #cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4])
+                   , temp_test)
 summary(model.sCos)
 
-#' The summary of the regression model implies that all periods in the `seasons` array 
-#' are significant. And now we can plot the residues after extracting the seasonal components
+#' The summary of the regression model implies that the annual period is significant.
+#' And now we can plot the residues after extracting the seasonal components
 
 ```{r residPlot1, fig.width=10, fig.height=4}
 par(mfrow=c(1,2))
@@ -192,8 +185,8 @@ axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tr
 box()
 
 #' We can see that the residuals after extracting the seasonal components still haven't 
-#' lost much of their periodic behavior. Taking a look at the residual ACF and PACF we see 
-#' that non-zero correlation extends from lag of approximately 30 up to 130 days.
+#' lost some of their periodic behavior. Taking a look at the residual ACF and PACF we see 
+#' that non-zero correlation extends from lag of approximately 50 days.
 
 ```{r ACFPlot2, fig.width=9, fig.height=4}
 par(mfrow=c(1,2))
@@ -277,7 +270,7 @@ signif
 
 ( signif <- head(spectrum, 10) )
 
-#' which we can then determine more precisely using the continuous spectral density:
+#' which we can then determine more precisely (by finding their local maxima) using the continuous spectral density:
 
 newsignif <- sapply(
   signif$omega,
@@ -301,12 +294,15 @@ model.cCos <- lm(Tres ~ cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test
                    ,
                  temp_test)
 summary(model.cCos)
- 
-#' We can then model the residues `temp_test$Tres` with the given `cCos` model:
+
+#' The cyclical components defined by first two periods seem to be significant, but we cannot be sure if they truly
+#' belong into the systematic model. For that reason we will save the residues of this model so that we can compare its
+#' predictive properties with only `sCos` in section 5.
+
+temp_test$cCos <- model.cCos$fitted.values
 
 ```{r cyclicalRegress,fig.width=10, fig.height=4}
 par(mfrow=c(1,1))
-temp_test$cCos <- model.cCos$fitted.values
 plot(x=temp_test$time, y=temp_test$Tres,
      main="Temperature (Residues)",xlab="day",ylab="T[°C]",axes=F)
 axis(side=1, at=seq(1, nt, 7))
@@ -314,35 +310,41 @@ axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tr
 lines(x=temp_test$time, y=temp_test$cCos, col="blue", lwd=2)
 box()
 
-#' and combine the seasonal and cyclical components in a regression against the original data
-
 temp_test$Tres <- temp_test$T
-model.ScosFinal <- lm(Tres ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
-                        # cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
-                        cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
-                        cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4]) +
-                        # cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
+
+#' We can combine the seasonal and cyclical components into a single model:
+
+
+model.SCcos <- lm(Tres ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
+                        cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
                         cos(2*pi*temp_test$time/periods[1]*2) + sin(2*pi*temp_test$time/periods[1]*2),
                       temp_test)
-summary(model.ScosFinal)
+summary(model.SCcos)
 
-temp_test$ScosFinal <- model.ScosFinal$fitted.values
+temp_test$SCcos <- model.SCcos$fitted.values
+
 ```{r finalRegress,fig.width=10, fig.height=5}
 par(mfrow=c(1,1))
 plot(T ~ temp_test$time, temp_test,
      main="Modeling Seasonal and Cyclical Components",xlab="day",ylab="T[°C]",axes=F)
 lines(temp_test$time, temp_test$sCos, col="red", lwd=2)
-lines(temp_test$time, temp_test$ScosFinal, col="blue", lwd=2)
+lines(temp_test$time, temp_test$SCcos, col="blue", lwd=2)
 axis(side=1, at=seq(1, nt, 7))
 axis(side=2, at=seq(round(min(temp_test$T), digits=1), round(max(temp_test$T), digits=1), by=2))
 box()
 legend("topleft", legend=c("seasonal","seasonal + Fourier"),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.8)
 
-temp_test$Tres <- model.ScosFinal$residuals
+temp_test$Tres <- model.sCos$residuals
+temp_test$Tres2 <- model.SCcos$residuals # for future use
 
 ```{r finalResidues,fig.width=10, fig.height=3.5}
 plot(x=temp_test$time, y=temp_test$Tres, type="l",
+     main="Residuals After Seasonal",xlab="day",ylab="T[°C]",axes=F)
+axis(side=1, at=seq(1, nt, 7))
+axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
+box()
+plot(x=temp_test$time, y=temp_test$Tres2, type="l",
      main="Residuals After Seasonal & Cyclical",xlab="day",ylab="T[°C]",axes=F)
 axis(side=1, at=seq(1, nt, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
@@ -371,7 +373,7 @@ box()
 #' 6.) Median Test 
 #' 
 #' 
-#' We begin by examining the residues after extracting all the systematic components in model.ScosFinal, as well as their
+#' We begin by examining the residues after extracting all the systematic components in `model.sCos`, as well as their
 #' ACF:
 
 ```{r resPlot1, fig.width=10, fig.height=5}
@@ -410,14 +412,14 @@ den <- sum(values2 ^ 2)
 ( DW <- (sum((values2[2:nv] - values2[1:(nv - 1)])^2))/den )
 
 #' The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number
-#' k of the terms of linear regression, in our case k = 4 and size = 265, hence in a 5% confidence interval:
+#' `k` of the terms of linear regression (intercept included), in our case `k = 2` and `size = 265`, hence in a 5% confidence interval:
 
 #' dL         dU
-# 1.77344  1.82010 (n = 260)
-# 1.77808  1.82300 (n = 270)
+# 1.78900  1.80444 (n = 260)
+# 1.79306  1.80792 (n = 270)
 
-dL <- 0.5 * (1.77344 + 1.77808)
-dU <- 0.5 * (1.82010 + 1.82300)
+dL <- 0.5 * (1.78900 + 1.79306)
+dU <- 0.5 * (1.80444 + 1.80792)
 
 if(DW <= dL) {
   message("Alternative Hypothesis: Positive Autocorrelation!")
@@ -427,13 +429,13 @@ if(DW <= dL) {
   message("Null Hypothesis: No Autocorrelation!")
 }
 
-#' We can obtain p-values using the model matrix of the `ScosFinal` model, simulating the stochastic process
+#' We can obtain p-values using the model matrix of the `Scos` model, simulating the stochastic process
 #' `Y ~ X - 1`, computing a DW-statistic for each simulation, and counting the number of `DW < simDW`:
 
-X <- model.matrix(model.ScosFinal)
+X <- model.matrix(model.sCos)
 reps = 1000
 sig <- var(values2)
-mu <- model.ScosFinal$fitted.values
+mu <- model.sCos$fitted.values
 Y <- matrix(rnorm(nv*reps, 0, sig), nv, reps) + matrix(mu, nv, reps)
 E <- residuals(lm(Y ~ X - 1))
 simDW <- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])^2) / sum(e ^ 2)) )
@@ -449,9 +451,9 @@ simDW <- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])^2)
 #' can process the entire regression model. It also has a `max.lag` argument which tells the function which lag to test for
 #' when using a model `Y ~ X - lag`. Parameter `alternative` also tells the function which type of correlation to test for:
 
-car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="two-sided")
-car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="negative")
-car::durbinWatsonTest(model.ScosFinal, max.lag=10, alternative="positive")
+car::durbinWatsonTest(model.sCos, max.lag=10, alternative="two-sided")
+car::durbinWatsonTest(model.sCos, max.lag=10, alternative="negative")
+car::durbinWatsonTest(model.sCos, max.lag=10, alternative="positive")
 
 #' We see that DW tests have zero p-value up to lag 3. This means that we could be dealing with an AR process of order 3 or
 #' higher.
@@ -626,8 +628,8 @@ randtests::turning.point.test(temp_test$Tres, alternative="right.sided")
 #' #### 3.2.6 Median Test ####
 #' This is another non-parametric test for the presene of periodic components which essentially divides the sample values
 #' into distinct groups each of which corresponds to a group of values that are unilaterally above or below the sample median,
-#' meaning that if the i-th value and its predecessors lie above the median, and the (i+1)-th value lies below, for instance, 
-#' the (i+1)-th value is a member of a new group of values which lie below the sample median.
+#' meaning that if the `i`-th value and its predecessors lie above the median, and the `(i+1)`-th value lies below, for instance, 
+#' the `(i+1)`-th value is a member of a new group of values which lie below the sample median.
 
 U <- temp_test$Tres
 temp_med <- median(U)
@@ -781,7 +783,7 @@ legend("topright", legend=c("ACF","PACF"), col = c("black","red"), lty=c(1,1))
 #' The second lag, however, does not exceed the zero region nearly as much as `L = 1`. It is then reasonable to assume
 #' that the most viable model will be of AR order `p = 1`. Hence:
 
-kmax = 60; pmax = 40; qmax = 40;
+kmax = 50; pmax = 30; qmax = 30;
 
 #' The Yule-Walker method based on solving regression equations against an increasing basis of AR terms can be done
 #' through the inbuilt `ar()` function which automatically finds the model with the lowest AIC (Akaike's Information Criterion). 
@@ -803,10 +805,10 @@ tmp <- sapply(1:kmax, function(x) ar(temp_test$Tres, aic=F, order.max=x)$var.pre
 plot(tmp, xlab="p", ylab="sigma^2", main="Residual variances")
 
 #' The plot suggests that the highest order of the AR process should be around
-#' `p = 40`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm.
+#' `p = 20`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm.
 #' For the sake of saving computation time, however, we choose the following maximum order parameters:
 #'    
-kmax = 41; pmax = 5; qmax = 20;
+kmax = 20; pmax = 10; qmax = 10;
 
 #LongAR method implementation:
 LongAR = function(tser, k, p, q) {
@@ -995,21 +997,21 @@ for (i in 1:5) {
 
 ```{r plot1212, echo=T, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
-n <- length(model.ScosFinal$fitted.values)
+n <- length(model.sCos$fitted.values)
 for(i in 1:5) {
   o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
   m <- length(newBestArma[[i,3]]$fitted.values)
   plot(temp$T[1:m], type="p", main=paste("Systematic lm + ARMA(",orders[[i]],")"), xlab="day",ylab="T")
   
-  syst_fit <- model.ScosFinal$fitted.values[1:m]
+  syst_fit <- model.sCos$fitted.values[1:m]
   lines(syst_fit, col="red", lwd=2)
   lines(newBestArma[[i,3]]$fitted.values + syst_fit, col="blue", lwd=2)
-  legend("topleft", legend=c("(1): Seasonal & Cyclic components", paste("(2): (1) + ARMA(",orders[[i]],")")),
+  legend("topleft", legend=c("(1): Seasonal", paste("(2): (1) + ARMA(",orders[[i]],")")),
          col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
 }
 
 #'
-#' The Hannan-Rissanen procedure with maximum orders: kmax = 41, pmax = 5, and qmax = 20, determined the optimal ARMA models
+#' The Hannan-Rissanen procedure with maximum orders: `kmax = 20`, `pmax = 10`, and `qmax = 10`, determined the optimal ARMA models
 #' to be: 
 row.names(newBestArma)
 #' Combining the systematic components, i.e.: the seasonal and cyclical 
