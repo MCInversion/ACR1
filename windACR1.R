@@ -145,8 +145,8 @@ temp_test$T <- temp$T[1:nt]
 temp_test$time <- temp$time[1:nt]
 
 temp_eval <- list()
-temp_eval$T <- temp$T[nt + 1:n]
-temp_eval$time <- temp$time[nt + 1:n]
+temp_eval$T <- temp$T[(nt + 1):n]
+temp_eval$time <- temp$time[(nt + 1):n]
 
 par(mfrow=c(1,1))
 plot(x=temp$time, y=temp$T, type="p", main="Test and Evaluaion Parts", xlab="time", ylab="T[°C]")
@@ -157,19 +157,24 @@ legend("topleft", legend=c("test","eval"),
 
 #' Now we will take the chosen season and regress them against the test part:
 
-model.sCos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) #+
+model.sCos <- lm(T ~ cos(2*pi*temp$time/seasons[1]) + sin(2*pi*temp$time/seasons[1]) #+
                      #cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
                      #cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
                      #cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4])
-                   , temp_test)
+                   , temp)
 summary(model.sCos)
 
 #' The summary of the regression model implies that the annual period is significant.
 #' And now we can plot the residues after extracting the seasonal components
 
+temp_test$sCos <- model.sCos$fitted.values[1:nt]
+temp_eval$sCos <- model.sCos$fitted.values[(nt + 1):n] # fitted values for later use
+
+temp_test$Tres <- model.sCos$residuals[1:nt]
+temp_eval$Tres <- model.sCos$residuals[(nt + 1):n] # residuals for later use
+
 ```{r residPlot1, fig.width=10, fig.height=4}
 par(mfrow=c(1,2))
-temp_test$sCos <- model.sCos$fitted.values
 plot(T ~ temp_test$time, temp_test,
      main="Fitted Annual Temperature Model",xlab="day",ylab="T[°C]",axes=F)
 lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
@@ -177,7 +182,7 @@ axis(side=1, at=seq(1, n, 7))
 axis(side=2, at=seq(min(temp_test$T), max(temp_test$T), by=2))
 lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
 box()
-temp_test$Tres <- model.sCos$residuals
+
 plot(x=temp_test$time, y=temp_test$Tres,
      main="Residuals",xlab="day",ylab="res(T)[°C]",axes=F,type="l")
 axis(side=1, at=seq(1, n, 7))
@@ -310,12 +315,10 @@ axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tr
 lines(x=temp_test$time, y=temp_test$cCos, col="blue", lwd=2)
 box()
 
-temp_test$Tres <- temp_test$T
-
 #' We can combine the seasonal and cyclical components into a single model:
 
 
-model.SCcos <- lm(Tres ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
+model.SCcos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
                         cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
                         cos(2*pi*temp_test$time/periods[1]*2) + sin(2*pi*temp_test$time/periods[1]*2),
                       temp_test)
@@ -335,8 +338,11 @@ box()
 legend("topleft", legend=c("seasonal","seasonal + Fourier"),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.8)
 
-temp_test$Tres <- model.sCos$residuals
-temp_test$Tres2 <- model.SCcos$residuals # for future use
+#length(temp_test$Tres)
+#length(model.sCos$residuals)
+
+temp_test$Tres <- model.sCos$residuals[1:nt]
+temp_test$Tres2 <- model.SCcos$residuals[1:nt] # for future use
 
 ```{r finalResidues,fig.width=10, fig.height=3.5}
 plot(x=temp_test$time, y=temp_test$Tres, type="l",
@@ -633,53 +639,34 @@ randtests::turning.point.test(temp_test$Tres, alternative="right.sided")
 
 U <- temp_test$Tres
 temp_med <- median(U)
-P <- 0; m <- 0
-for (i in 1:nt)
-{
-  if (U[i] != temp_med)
-  {
-    if (i == 1)
-    {
-      P <- P + 1
-      if (U[i] > temp_med) m <- m + 1
-    }
-    else if (i > 1 & (U[i] > temp_med) & (previous < temp_med)) #lower to upper
-    {
-      P <- P + 1
-      m <- m + 1 #counting all above median
-    }
-    else if (i > 1 & (U[i] < temp_med) & (previous > temp_med)) #upper to lower
-    {
-      P <- P + 1
-    }
-    previous <- U[i]
-  }
-}
+U_ <- U - temp_med
+U_ <- U_[U_ != 0]
+M <- U_ > 0
+head(as.numeric(M), 10)
+
+c(below=sum(diff(M)<0), above=sum(diff(M)>0))
+
+m <- sum(M)
+P <- sum(diff(M)>0) + sum(diff(M)<0) + 1
 
 ```{r medianPlot1, fig.width=11, fig.height=5}
 par(mfrow=c(1,1))
 plot(temp_test$Tres ~ temp_test$time, main="Median", ylab="res")
 abline(h=temp_med, col="green")
-for(i in 1:length(temp_test$Tres))
-{
-  if (U[i] != temp_med )
-  {
-    if (U[i] > temp_med)
-    {
+for(i in 1:length(temp_test$Tres)) {
+  if (U[i] != temp_med ) {
+    if (U[i] > temp_med){
       segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "red", lwd=1)
-    }
-    else
-    {
+    } else {
       segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "blue", lwd=1)
     }
   }
 }
 
-ZStatistic <- (P - (m + 1)) / sqrt(m * (m - 1) * (2 * m - 1))
+( ZStatistic <- (P - (m+1)) / sqrt(m*(m-1)/(2*m-1)) )
 
 
-if (ZStatistic > qnorm(alpha / 2) && ZStatistic < qnorm(1 - alpha/2))
-{
+if (ZStatistic > qnorm(alpha / 2) && ZStatistic < qnorm(1 - alpha/2)) {
   message(paste("qnorm(",alpha/2,") < Zstat < qnorm(",1 - alpha/2,")"))
   message("", round(qnorm(alpha / 2), digits=2)," < ", round(ZStatistic, digits=2)," < ",round(qnorm(1 - alpha/2), digits=2),"")
   message("Null Hypothesis! Randomness!")
@@ -694,6 +681,8 @@ if (ZStatistic > qnorm(alpha / 2) && ZStatistic < qnorm(1 - alpha/2))
 ( p_value <- pnorm(ZStatistic) ) # positive serial correlation
 ( p_value <- 2*min(p_value, 1 - p_value)) # (two-sided) non-randomness
 ( p_value <- 1 - p_value ) # negative serial correlation
+
+randtests::runs.test(U)
 
 # library(signmedian.test) # NOTE: signmedian.test does not do the same thing as the median test above
 # signmedian.test(temp_test$Tres, alternative="two.sided")
@@ -943,7 +932,6 @@ MaxLikelihoodOptim = function (tmpmodel, use_arima=TRUE) {
 #model comparison function
 CompareModels = function(models) {
   orders <- rownames(models)
-  models <- bestArma
   
   output <- list()
   
@@ -997,7 +985,7 @@ for (i in 1:5) {
 
 ```{r plot1212, echo=T, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
-n <- length(model.sCos$fitted.values)
+n <- length(temp_test$Tres)
 for(i in 1:5) {
   o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
   m <- length(newBestArma[[i,3]]$fitted.values)
@@ -1017,4 +1005,201 @@ row.names(newBestArma)
 #' Combining the systematic components, i.e.: the seasonal and cyclical 
 #' components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part
 #' of the original time series. The evaluation part will be used in the following section where we will test the given models
-#' and carry out single-step predictions.
+#' and carry out predictions.
+#' 
+#' #' ## 5. ARMA Model Diagnostics and Predictions ##
+#' 
+#' Prior to carrying out (single-step and multiple step) predictions, we need to test the accuracy of the given models. For that we use the 
+#' following series of diagnostic tests:
+#' 
+#' - Zero Autocorrelation
+#' 
+#' - Normality of Residues
+#' 
+#' - Conditional Heteroskedasticity
+#' 
+#' ### 5.1. Zero Autocorrelation ###
+#' 
+#' The Autocorrelation function (ACF) shows a reasonably clear image of the dependency of individual random variables with
+#' respect to time lag. This means that if the ACF has non-zero values for some lags greater than zero, then it is likely
+#' that the residues after removing the ARMA regression's fitted values still contain some systematic or ARMA component.
+#' To find out we test for a null hypothesis: `ACF(k) = 0` for all `k > 0`, against an alternative `ACF(k) != 0` for some `k > 0`.
+
+```{r plot1zaa, echo=T, fig.width=9, fig.height=4}
+ZeroACF = function (x, zeroValue) {
+  x = ifelse (abs(x) < zeroValue, 0, x)
+}
+
+NonZeroValues = function (series, zero) {
+  indices <- which(series != 0)
+  nonzeros <- list()
+  
+  nonzeros[["zero val"]] <- zero
+  
+  for (i in 2:length(indices)) {
+    nonzeros[[paste("k",indices[i], sep = '_')]] <- series[indices[i]]
+  }
+  
+  data.frame(head(nonzeros))
+}
+
+ACFs <- list()
+Nonzeros <- list()
+
+par(mfrow=c(1,2))
+for (i in 1:5) {
+  acf(newBestArma[[i,3]]$residuals, ylab="ACF", lag.max=nt, main=paste("ARMA(",orders[[i]],") res"))
+  
+  ACFs[[i]] <- acf(newBestArma[[i,3]]$residuals, ylab="ACF", lag.max=nt, plot=F)$acf
+  zero <- 2 / sqrt(nt)
+  ACFs[[i]] <- sapply(ACFs[[i]], function(x) ZeroACF(x, zero))
+  lines(ACFs[[i]], col="red", lwd=2)
+  
+  Nonzeros[[i]] <- NonZeroValues(ACFs[[i]], zero)
+}
+
+#' Using the zero-value approximation: `2/sqrt(nt)`, where `nt` is the length of the residual time series,
+#' we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant
+#' residual lags such as 14, and 23 in the model.sCos in section 3). The significance of the 23-day lag, however,
+#' is not nearly as high as it would have otherwise been (with additional significant lags) if additional lags had not been 
+#' introduced prior to carrying out the Hannan-Rissanen procedure. Thus we can assume that all models, having
+#' no other significant lags than the 23-day lag, describe the behavior of the test part of the residual time series 
+#' reasonably well.
+#' In the following list:
+
+Nonzeros
+
+#' we see the exact lags for which the ACF exceeds the zero-value.
+#' 
+#' ### 5.2. Normality of Residues ###
+#' 
+#' If a given ARMA model describes the time series well enough, the residues should behave as if they were generated
+#' by a stochastic process with values at individual times `t` being the realizations of independent identically distributed
+#' random variables. For sufficiently large number of time steps, the residues are assumed to be the results of a normally 
+#' distributed random variable. 
+#' 
+#' To test that, we use the, so called, Jarque-Bera test:
+
+```{r JBTest, echo=T}
+JBToutput <- list()
+
+for (i in 1:5) {
+  JBToutput[[i]] <- tseries::jarque.bera.test(newBestArma[[i,3]]$residuals)
+  
+  pValue <- as.numeric(JBToutput[[i]]$p.value)
+  
+  JBToutput1 <- c("1,0",JBToutput[[i]]$statistic, JBToutput[[i]]$parameter, pValue)
+  names(JBToutput1) <- c("p,q","statistic", "DOF", "p.value")
+  data.frame(head(JBToutput1))
+  if (pValue > 0.05) {
+    message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Normality hypothesis rejected"))
+  } else { message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Normality hypothesis accepted")) }
+}
+
+
+#' As it appears, the normality of the residues of all top 5 ARMA models is accepted. 
+#'
+#' ### 5.3. Conditional Heteroskedasticity ###
+#' 
+#' The term "heteroskedasticity" of a time series describes the tendency of its variance to change with time.
+#' A time series whose variance (up to a given time) remains the same are called "homoskedastic".
+#' The following Breusch-Pagan test assesses the homoskedasticity of a given model:
+
+```{r Skedast, echo=T}
+alpha = 0.05
+SkedtestResults <- list()
+for (i in 1:5) {
+  (SkedtestResults[[i]] <- lmtest::bptest(newBestArma[[i,3]]) )
+  
+  pValue <- as.numeric(SkedtestResults[[i]]$p.value)
+  
+  if (pValue > alpha) {
+    message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Null hypothesis rejected: model is heteroskedastic"))
+  } else {
+    message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Null hypothesis accepted: model is homoskedastic"))
+  }
+} 
+
+#' Thus on the 5% significance level we accept the null hypothesis for all models,
+#' i.e.: all models are heteroskedastic.
+#'
+#'-----------------------------------------------------------------------------------------------------------------
+#'
+#' ### 5.4. Forecasting and Single-Step Predictions ###
+#' 
+#' Now we make use of the evaluation part of the time series which we have separated from the original series earlier
+#' in section 4. Since the `dynlm` model we used earlier does not support `predict()` function from the `forecast` library
+#' we use equivalent `ARIMA(p,0,q)` models instead of `ARMA(p,q)`, which have an inbuilt function `arima()`, the result of which
+#' is an object that can be processed by the `predict()` call.
+
+( neval <- length(temp_eval$Tres) )
+
+```{r predictplot1, echo=TRUE, fig.width=9, fig.height=4}
+par(mfrow=c(1,1))
+library(forecast)
+eval.predictions <- list()
+merrors <- list()
+
+
+for (i in 1:5) {
+  #extract model orders from the top models from Hannan-Rissanen:
+  o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+  #estimate a suitable model on the test part of the time series
+  model_estim <- arima(temp_test$Tres, order=c(p,0,q))
+  #use the estimated model as an argument, fitting the same model to the whole time series without re-estimating any parameters
+  eval.predictions[[i]] <- Arima(temp_test$Tres, order=c(p,0,q), model=model_estim)
+  #and take the evaluation part for examination
+  eval.predictions[[i]] <- tail(fitted(eval.predictions[[i]]), neval)
+  merrors[[i]] <- mean((temp_eval$Tres - eval.predictions[[i]])^2)
+  plot(x=temp_eval$time, y=temp_eval$Tres, main=paste("Predictions ARMA(",p,",",q,"), RMSE =", round(sqrt(merrors[[i]]), 4)),
+       xlab="day", ylab="[°C]", type="l", lwd=1.5)
+  lines(x=temp_eval$time, y=eval.predictions[[i]], col="blue", lwd="2")
+  legend("topleft", legend=c("prediction", paste("actual values")),
+         col=c("blue","black"), lty=1,lwd=2 , cex=0.75)
+}
+
+#' We have also computed Root Mean Square Errors for each model, with the smallest one being:
+
+minE <- which.min(merrors)
+
+#' ### 5.5. Comparison of Predictive Abilities Using the Diebold-Mariano Test ###
+#' 
+#' Taking two different ARMA models, the null hypothesis of the test states that both models have equal predictive
+#' abilities. We will be comparing 5 different models against each other, which will essentially amount to testing
+#' the predictive abilities of 10 distinct pairs of models. Practically, the test results can be expressed in a 5x5
+#' "DieboldMarianoMatrix" with values 0 (if model i has the same predictive abilities as model j), 1 (if model i has
+#' better predictive abilities than model j), and -1 (the other way around):
+
+DieboldMarianoMatrix <- matrix(0, ncol=5, nrow=5)
+for(i in 1:length(eval.predictions)) {
+  for(j in 1:length(eval.predictions)) {
+    if(i==j) next
+    # i = 1; j = 3;
+    test <- forecast::dm.test(temp_eval$Tres - eval.predictions[[i]], temp_eval$Tres - eval.predictions[[j]])
+    DieboldMarianoMatrix[i,j] <- (test$p.value < alpha) * sign(test$statistic) 
+  }
+}
+DieboldMarianoMatrix
+
+#' As the results of the Diebold-Mariano test suggest, model (with index) 3 has better predictive abilities than all the remaining models
+#' on a 5% significance level.
+#' A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE).
+#' Here we can see how the predictions match the observed values from the evaluation part of the time series:
+
+```{r predictPlot2, echo=T, fig.width=9, fig.height=6}
+par(mfrow=c(1,1));
+m <- length(temp_test$T); n <- length(model.sCos$fitted.values)
+fullpredict <- eval.predictions[[minE]] + model.sCos$fitted.values[(m+1):n]
+plot(temp$T, main=paste("Prediction + Systematic , ARMA(", orders[[minE]],"):"), ylab="T",xlab="day")
+lines(x=temp_eval$time, y=fullpredict, col="blue", lwd=2)
+syst_fit <- model.sCos$fitted.values[(m - length(newBestArma[[minE,3]]$fitted.values) + 1):m]
+
+lines(newBestArma[[minE,3]]$fitted.values + syst_fit, col="red",lwd=1)
+legend("topleft", legend=c(paste("Model ARMA(",orders[[minE]],")"), paste("Model ARMA(",orders[[minE]],") predictions")),
+       col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
+
+#'
+#' The model with the smallest RMSE is ARMA(1,1). Except for the outlying values, the predictive capabilities of the model
+#' can also be verified visually from the plot above.
+#'
+#' --------------------------------------------------------------------------------------------------------------
