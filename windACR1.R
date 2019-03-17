@@ -318,13 +318,14 @@ box()
 #' We can combine the seasonal and cyclical components into a single model:
 
 
-model.SCcos <- lm(T ~ cos(2*pi*temp_test$time/seasons[1]) + sin(2*pi*temp_test$time/seasons[1]) +
-                        cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
-                        cos(2*pi*temp_test$time/periods[1]*2) + sin(2*pi*temp_test$time/periods[1]*2),
-                      temp_test)
+model.SCcos <- lm(T ~ cos(2*pi*temp$time/seasons[1]) + sin(2*pi*temp$time/seasons[1]) +
+                        cos(2*pi*temp$time/periods[1]) + sin(2*pi*temp$time/periods[1]) +
+                        cos(2*pi*temp$time/periods[1]*2) + sin(2*pi*temp$time/periods[1]*2),
+                      temp)
 summary(model.SCcos)
 
-temp_test$SCcos <- model.SCcos$fitted.values
+temp_test$SCcos <- model.SCcos$fitted.values[1:nt]
+temp_eval$SCcos <- model.SCcos$fitted.values[(nt + 1):n]
 
 ```{r finalRegress,fig.width=10, fig.height=5}
 par(mfrow=c(1,1))
@@ -343,6 +344,8 @@ legend("topleft", legend=c("seasonal","seasonal + Fourier"),
 
 temp_test$Tres <- model.sCos$residuals[1:nt]
 temp_test$Tres2 <- model.SCcos$residuals[1:nt] # for future use
+
+temp_eval$Tres2 <- model.SCcos$residuals[(nt + 1):n]
 
 ```{r finalResidues,fig.width=10, fig.height=3.5}
 plot(x=temp_test$time, y=temp_test$Tres, type="l",
@@ -438,10 +441,11 @@ if(DW <= dL) {
 #' We can obtain p-values using the model matrix of the `Scos` model, simulating the stochastic process
 #' `Y ~ X - 1`, computing a DW-statistic for each simulation, and counting the number of `DW < simDW`:
 
-X <- model.matrix(model.sCos)
+X <- model.matrix(model.sCos)[1:nt,]
+
 reps = 1000
 sig <- var(values2)
-mu <- model.sCos$fitted.values
+mu <- temp_test$sCos
 Y <- matrix(rnorm(nv*reps, 0, sig), nv, reps) + matrix(mu, nv, reps)
 E <- residuals(lm(Y ~ X - 1))
 simDW <- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])^2) / sum(e ^ 2)) )
@@ -1007,7 +1011,7 @@ row.names(newBestArma)
 #' of the original time series. The evaluation part will be used in the following section where we will test the given models
 #' and carry out predictions.
 #' 
-#' #' ## 5. ARMA Model Diagnostics and Predictions ##
+#' ## 5. ARMA Model Diagnostics and Predictions ##
 #' 
 #' Prior to carrying out (single-step and multiple step) predictions, we need to test the accuracy of the given models. For that we use the 
 #' following series of diagnostic tests:
@@ -1057,6 +1061,8 @@ for (i in 1:5) {
   
   Nonzeros[[i]] <- NonZeroValues(ACFs[[i]], zero)
 }
+
+
 
 #' Using the zero-value approximation: `2/sqrt(nt)`, where `nt` is the length of the residual time series,
 #' we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant
@@ -1147,14 +1153,16 @@ for (i in 1:5) {
   #estimate a suitable model on the test part of the time series
   model_estim <- arima(temp_test$Tres, order=c(p,0,q))
   #use the estimated model as an argument, fitting the same model to the whole time series without re-estimating any parameters
-  eval.predictions[[i]] <- Arima(temp_test$Tres, order=c(p,0,q), model=model_estim)
+  eval.predictions[[i]] <- Arima(model.sCos$residuals, order=c(p,0,q), model=model_estim)
   #and take the evaluation part for examination
   eval.predictions[[i]] <- tail(fitted(eval.predictions[[i]]), neval)
   merrors[[i]] <- mean((temp_eval$Tres - eval.predictions[[i]])^2)
-  plot(x=temp_eval$time, y=temp_eval$Tres, main=paste("Predictions ARMA(",p,",",q,"), RMSE =", round(sqrt(merrors[[i]]), 4)),
+
+  plot(x=temp_eval$time, y=temp_eval$T, 
+       main=paste("Predictions ARMA(",p,",",q,"), RMSE = ", round(sqrt(merrors[[i]]), 4)),
        xlab="day", ylab="[°C]", type="l", lwd=1.5)
-  lines(x=temp_eval$time, y=eval.predictions[[i]], col="blue", lwd="2")
-  legend("topleft", legend=c("prediction", paste("actual values")),
+  lines(x=temp_eval$time, y=(eval.predictions[[i]] + temp_eval$sCos), col="blue", lwd=2)
+  legend("bottomleft", legend=c("prediction", "actual values"),
          col=c("blue","black"), lty=1,lwd=2 , cex=0.75)
 }
 
@@ -1171,35 +1179,209 @@ minE <- which.min(merrors)
 #' better predictive abilities than model j), and -1 (the other way around):
 
 DieboldMarianoMatrix <- matrix(0, ncol=5, nrow=5)
+pvalueMatrix <- matrix(1, ncol=5, nrow=5)
 for(i in 1:length(eval.predictions)) {
   for(j in 1:length(eval.predictions)) {
     if(i==j) next
-    # i = 1; j = 3;
     test <- forecast::dm.test(temp_eval$Tres - eval.predictions[[i]], temp_eval$Tres - eval.predictions[[j]])
     DieboldMarianoMatrix[i,j] <- (test$p.value < alpha) * sign(test$statistic) 
+    pvalueMatrix[i,j] <- round(test$p.value, 3)
   }
 }
 DieboldMarianoMatrix
 
-#' As the results of the Diebold-Mariano test suggest, model (with index) 3 has better predictive abilities than all the remaining models
+pvalueMatrix
+
+#' As the results of the Diebold-Mariano test suggest, models 3 and 5 have better predictive abilities than all the remaining models
 #' on a 5% significance level.
+#' 
 #' A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE).
 #' Here we can see how the predictions match the observed values from the evaluation part of the time series:
 
 ```{r predictPlot2, echo=T, fig.width=9, fig.height=6}
 par(mfrow=c(1,1));
-m <- length(temp_test$T); n <- length(model.sCos$fitted.values)
-fullpredict <- eval.predictions[[minE]] + model.sCos$fitted.values[(m+1):n]
-plot(temp$T, main=paste("Prediction + Systematic , ARMA(", orders[[minE]],"):"), ylab="T",xlab="day")
+o <- unlist(strsplit(orders[[minE]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+n <- length(model.sCos$fitted.values)
+fullpredict <- as.numeric(eval.predictions[[minE]] + temp_eval$sCos)
+plot(x=temp$time, y=temp$T, main=paste("Prediction + Systematic , ARMA(", orders[[minE]],"):"), ylab="T",xlab="day")
 lines(x=temp_eval$time, y=fullpredict, col="blue", lwd=2)
-syst_fit <- model.sCos$fitted.values[(m - length(newBestArma[[minE,3]]$fitted.values) + 1):m]
 
-lines(newBestArma[[minE,3]]$fitted.values + syst_fit, col="red",lwd=1)
-legend("topleft", legend=c(paste("Model ARMA(",orders[[minE]],")"), paste("Model ARMA(",orders[[minE]],") predictions")),
+k = max(p, q)
+syst_fit <- model.sCos$fitted.values[(k + 1):nt]
+test_model <- newBestArma[[minE,3]]$fitted.values + syst_fit
+
+lines(x=temp_test$time[(k + 1):nt], y=test_model, col="red",lwd=2)
+lines(x=temp$time[nt:(nt + 1)], y=c(test_model[nt - 1], fullpredict[1]), col="red", lwd=2) #line connecting first and second value set
+legend("topleft", legend=c(paste("Model ARMA(",orders[[minE]],")"), paste("Model ARMA(",orders[[minE]],") prediction")),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
 
 #'
-#' The model with the smallest RMSE is ARMA(1,1). Except for the outlying values, the predictive capabilities of the model
+#' The model with the smallest RMSE is ARMA(1,0). Except for the outlying values, the predictive capabilities of the model
 #' can also be verified visually from the plot above.
+#' Now recall that we have fully neglected the effect of cyclical components. The residues after removing cyclical components as well
+#' have been stored in `temp_test$Tres2`. We can run the whole H-R procedure again for these residues to see if an ARMA type model can
+#' be found which would have better predictive abilities:
+#' 
+
+AICs <- ar(temp_test$Tres2, order.max=kmax)$aic
+
+minAIC <- min(AICs[pmax:kmax])
+for (k in pmax:kmax) {
+  if (AICs[k] == minAIC) {
+    korder <- k
+    break
+  }
+}
+
+( k <- korder )
+
+models.arma2 <- list() 
+
+suppressMessages(require(dynlm))
+models.arma2[[paste(1,0,sep=",")]] <- LongAR(temp_test$Tres2, k, 1, 0)
+models.arma2[[paste(0,1,sep=",")]] <- LongAR(temp_test$Tres2, k, 0, 1)
+
+for(p in 1:pmax) {  
+  for(q in 1:qmax) {
+    models.arma2[[paste(p,q,sep=",")]] <- LongAR(temp_test$Tres2, k, p, q)
+  }
+}
+
+bic2 <- cbind(
+  BIC = sapply(models.arma2, function(x) InfCrit(x, type="BIC")),
+  AIC = sapply(models.arma2, function(x) InfCrit(x, type="AIC"))
+)
+bic2 <- bic2[order(bic2[,"BIC"]),]
+
+head(bic2, n=5)
+head(bic, n=5)
+
+#' Using `temp_test$Tres2` does not change the ARMA model selection at all. Hence we will only need to compare the resulting 
+#' error when cyclical components are included (in model `model.SCcos`).
+
+bestArma2 <- head(bic2, n=5)
+orders2 <- rownames(bestArma2)
+topModels2 <- list()
+
+for (j in 1:length(orders2)) {
+  key <- orders2[[j]]
+  topModels2[[key]] <- models.arma2[[key]]
+}
+
+( bestArma2 <- cbind(bestArma2, topModels2) ) 
+
+```{r acf2plot, echo=T, fig.width=9, fig.height=3.5}
+acf(bestArma2[[1,3]]$residuals, ylab="ACF", lag.max=nt, main=paste("ARMA(",orders2[[1]],") res"))
+
+ACFs <- acf(bestArma2[[1,3]]$residuals, ylab="ACF", lag.max=nt, plot=F)$acf
+zero <- 2 / sqrt(nt)
+ACFs <- ZeroACF(ACFs, zero)
+lines(ACFs, col="red", lwd=2)
+
+( Nonzero <- NonZeroValues(ACFs, zero) )
+
+#' the significant lags in the acf of the first ARMA model's residuals are still present.
+#' 
+
+eval.predictions2 <- list()
+merrors2 <- list()
+
+```{r predictPlot3, echo=T, fig.width=9, fig.height=4}
+for (i in 1:5) {
+  o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+  model_estim2 <- arima(temp_test$Tres2, order=c(p,0,q))
+  eval.predictions2[[i]] <- Arima(model.SCcos$residuals, order=c(p,0,q), model=model_estim2)
+  eval.predictions2[[i]] <- tail(fitted(eval.predictions2[[i]]), neval)
+  
+  merrors2[[i]] <- mean((temp_eval$Tres2 - eval.predictions2[[i]])^2)
+  
+  plot(x=temp_eval$time, y=temp_eval$T, 
+       main=paste("Predictions ARMA(",p,",",q,"), RMSE = (", round(sqrt(merrors[[i]]), 4), ",",round(sqrt(merrors2[[i]]), 4)," )"),
+       xlab="day", ylab="[°C]", type="l", lwd=1.5)
+  lines(x=temp_eval$time, y=(eval.predictions2[[i]] + temp_eval$SCcos), col="red", lwd=2)
+  lines(x=temp_eval$time, y=(eval.predictions[[i]] + temp_eval$sCos), col="blue", lwd=2)
+  legend("bottomleft", legend=c("prediction1", "prediction2", "actual values"),
+         col=c("blue","red","black"), lty=1,lwd=2 , cex=0.75)
+}
+
+errorCmp <- data.frame(
+  RMSE1=round(sqrt(as.numeric(merrors)), 4),
+  RMSE2=round(sqrt(as.numeric(merrors2)), 4)
+)
+
+row.names(errorCmp) <- orders
+
+errorCmp
+
+#' The results show that even though adding cyclical components decreases the `RMSE` of the model predictions, it does not
+#' change their orders. To see if the new models have significantly better predictive abilities, we can perform a Diebold-Mariano
+#' test on a twice as large set of models:
+
+DieboldMarianoMatrix <- matrix(0, ncol=10, nrow=10)
+pvalueMatrix <- matrix(1, ncol=10, nrow=10)
+for(i in 1:10) {
+  for(j in 1:10) {
+    if(i==j) next
+    if (i <= 5 && j <= 5) {
+      test <- forecast::dm.test(temp_eval$Tres - eval.predictions[[i]], temp_eval$Tres - eval.predictions[[j]])
+    } else if (i <= 5 && j > 5) {
+      test <- forecast::dm.test(temp_eval$Tres - eval.predictions[[i]], temp_eval$Tres2 - eval.predictions2[[j - 5]])
+    } else if (i > 5 && j <= 5) {
+      test <- forecast::dm.test(temp_eval$Tres2 - eval.predictions2[[i - 5]], temp_eval$Tres - eval.predictions[[j]])
+    } else {
+      test <- forecast::dm.test(temp_eval$Tres2 - eval.predictions2[[i - 5]], temp_eval$Tres2 - eval.predictions2[[j - 5]])
+    }
+    DieboldMarianoMatrix[i,j] <- (test$p.value < alpha) * sign(test$statistic) 
+    pvalueMatrix[i, j] <- round(test$p.value, 3)
+  }
+}
+DieboldMarianoMatrix
+
+pvalueMatrix
+
+#' Which only shows that there is no significant difference between the models since the `DieboldMarianoMatrix` values
+#' for rows 6 to 10 and columns 1 to 5 suggest none of the models from the second set are significantly better than the ones in the first set.
+#' Thus we will consider only ARMA + seasonal systematic component models.
+#' 
+#' ### 5.6 Multiple-Step Predictions ###
+#' 
+
+h = 1; # prediction horizon
+o <- unlist(strsplit(orders[[5]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+stepmax <- max(p, q, h)
+t0 <- nt - stepmax
+x <- as.numeric(temp$T)
+x_preds <- numeric()
+
+phi = newBestArma[[5, 3]]$coefficients[2:(p + 1)] # AR coeffs
+theta = newBestArma[[5, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
+
+for (t in t0:n) {
+  for (j in 1:h) {
+    if (j == 1) {
+      xt <- as.numeric(
+        phi %*% x[(t + j - 1):(t + j + p - 2)] + # AR part
+        theta %*% t(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)]) # MA part
+      )
+    } else {
+      zz <- sapply(1:q, function(qq) ifelse(j - qq > 0, 0, 1))
+      zt <- as.numeric(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)])
+      xx <- sapply(1:p, function(pp) ifelse(j - pp > 0, x_preds[t - t0 + j - pp], x[t + j - pp]))
+
+      xt <- as.numeric(
+        phi %*% xx + # AR part
+        theta %*% (zz * zt) # MA part
+      )
+    }
+    x_preds[t - t0 + j] <- xt
+  }
+}
+
+m <- length(x_preds)
+ne <- length(temp_eval$time)
+
+plot(x=temp$time[t0:n], y=temp$T[t0:n], type="l", lwd=1.5)
+lines(x=temp_eval$time, y=x_preds[(m - ne + 1):m], col="blue", lwd=2)
+
 #'
 #' --------------------------------------------------------------------------------------------------------------
