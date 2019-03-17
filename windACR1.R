@@ -1346,7 +1346,7 @@ pvalueMatrix
 #' ### 5.6 Multiple-Step Predictions ###
 #' 
 
-h = 1; # prediction horizon
+h = 2; # prediction horizon
 o <- unlist(strsplit(orders[[5]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
 stepmax <- max(p, q, h)
 t0 <- nt - stepmax
@@ -1358,21 +1358,14 @@ theta = newBestArma[[5, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
 
 for (t in t0:n) {
   for (j in 1:h) {
-    if (j == 1) {
-      xt <- as.numeric(
-        phi %*% x[(t + j - 1):(t + j + p - 2)] + # AR part
-        theta %*% t(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)]) # MA part
-      )
-    } else {
-      zz <- sapply(1:q, function(qq) ifelse(j - qq > 0, 0, 1))
-      zt <- as.numeric(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)])
-      xx <- sapply(1:p, function(pp) ifelse(j - pp > 0, x_preds[t - t0 + j - pp], x[t + j - pp]))
-
-      xt <- as.numeric(
-        phi %*% xx + # AR part
+    zz <- sapply(1:q, function(qq) ifelse(j - qq > 0, 0, 1))
+    zt <- as.numeric(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)])
+    xx <- sapply(1:p, function(pp) ifelse(j - pp > 0, x_preds[t - t0 + j - pp], x[t + j - pp]))
+    
+    xt <- as.numeric(
+      phi %*% xx + # AR part
         theta %*% (zz * zt) # MA part
-      )
-    }
+    )
     x_preds[t - t0 + j] <- xt
   }
 }
@@ -1382,6 +1375,7 @@ ne <- length(temp_eval$time)
 
 plot(x=temp$time[t0:n], y=temp$T[t0:n], type="l", lwd=1.5)
 lines(x=temp_eval$time, y=x_preds[(m - ne + 1):m], col="blue", lwd=2)
+lines(x=temp$time[t0:(nt + 1)], y=x_preds[1:(m - ne)], col="blue", lwd=2, lty=2)
 
 #'
 #' --------------------------------------------------------------------------------------------------------------
