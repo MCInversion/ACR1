@@ -1348,24 +1348,26 @@ pvalueMatrix
 
 hmax = 5; # prediction horizon
 
-```{r multipredictPlot, echo=T, fig.width=10, fig.height=4}
+```{r multipredictPlot, echo=T, fig.width=10, fig.height=5}
 par(mfrow=c(1,1));
 
 for (i in 1:5) {
+  # i <- 1
   x_predictions <- list()
   t_predictions <- list()
   
   o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
   x <- as.numeric(model.sCos$residuals)
   
+  phi0 = newBestArma[[i, 3]]$coefficients[1]
+  phi = newBestArma[[i, 3]]$coefficients[2:(p + 1)] # AR coeffs
+  theta = newBestArma[[i, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
+  
   for (h in 1:hmax) {
-    # stepmax <- max(p, q, h)
-    t0 <- nt + 1
+    # h <- 1
+    stepmax <- max(p, q, h)
+    t0 <- nt - stepmax + 1
     x_preds <- numeric() # h-step prediction estimates
-    
-    phi0 = newBestArma[[i, 3]]$coefficients[1]
-    phi = newBestArma[[i, 3]]$coefficients[2:(p + 1)] # AR coeffs
-    theta = newBestArma[[i, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
     
     for (t in t0:n) {
       # t <- t0
@@ -1402,19 +1404,23 @@ for (i in 1:5) {
     m <- length(x_preds)
     ne <- length(temp_eval$time)
     
-    xp <- as.matrix(na.omit(data.frame(x_preds[(m - ne + 1):m])))
-    np <- length(xp)
+    x_preds <- as.matrix(na.omit(data.frame(x_preds[(m - ne + 1):m] + temp_eval$sCos ) ) )
+    np <- length(x_preds)
     
-    x_predictions[[h]] <- xp
+    #if (ne > np) {
+    #  message(paste( "ne > np : ", ne ," > ", np, ", h = ", h,", ARMA(", p, ",", q,")"));
+    #}
+    
+    x_predictions[[h]] <- x_preds
     t_predictions[[h]] <- temp_eval$time[(ne - np + 1):ne]
   }
   
-  plot(x=temp_eval$time, y=temp_eval$Tres, type="b", lwd=1.5, main=paste("ARMA(",p,",",q,") Multiple-Step predictions"),
+  plot(x=temp_eval$time, y=(temp_eval$Tres + temp_eval$sCos), type="b", lwd=1.5, main=paste("ARMA(",p,",",q,") Multiple-Step predictions"),
        xlab="day", ylab="res(T)[°C]")
   for (h in 1:hmax) {
     lines(x=t_predictions[[h]], y=x_predictions[[h]], col=rgb(0, (1 - h / hmax), h / hmax), lwd=2)
   }
-  legend("topleft", legend=sapply(1:hmax, function(h) paste("h = ", h)),
+  legend("bottomleft", legend=sapply(1:hmax, function(h) paste("h = ", h)),
          col=sapply(1:hmax, function(h) rgb(0, (1 - h / hmax), h / hmax)), lty=1,lwd=2 , cex=0.75)
   
 }
