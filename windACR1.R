@@ -1346,36 +1346,80 @@ pvalueMatrix
 #' ### 5.6 Multiple-Step Predictions ###
 #' 
 
-h = 2; # prediction horizon
-o <- unlist(strsplit(orders[[5]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
-stepmax <- max(p, q, h)
-t0 <- nt - stepmax
-x <- as.numeric(temp$T)
-x_preds <- numeric()
+hmax = 5; # prediction horizon
 
-phi = newBestArma[[5, 3]]$coefficients[2:(p + 1)] # AR coeffs
-theta = newBestArma[[5, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
+```{r multipredictPlot, echo=T, fig.width=10, fig.height=4}
+par(mfrow=c(1,1));
 
-for (t in t0:n) {
-  for (j in 1:h) {
-    zz <- sapply(1:q, function(qq) ifelse(j - qq > 0, 0, 1))
-    zt <- as.numeric(x[(t + j - q):(t + j - 1)] - phi %*% x[(t + j - p - 3):(t + j - 2)])
-    xx <- sapply(1:p, function(pp) ifelse(j - pp > 0, x_preds[t - t0 + j - pp], x[t + j - pp]))
+for (i in 1:5) {
+  x_predictions <- list()
+  t_predictions <- list()
+  
+  o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
+  x <- as.numeric(model.sCos$residuals)
+  
+  for (h in 1:hmax) {
+    # stepmax <- max(p, q, h)
+    t0 <- nt + 1
+    x_preds <- numeric() # h-step prediction estimates
     
-    xt <- as.numeric(
-      phi %*% xx + # AR part
-        theta %*% (zz * zt) # MA part
-    )
-    x_preds[t - t0 + j] <- xt
+    phi0 = newBestArma[[i, 3]]$coefficients[1]
+    phi = newBestArma[[i, 3]]$coefficients[2:(p + 1)] # AR coeffs
+    theta = newBestArma[[i, 3]]$coefficients[(p + 2):(1 + p + q)] # MA coeffs
+    
+    for (t in t0:n) {
+      # t <- t0
+      for (j in 1:h) {
+        # j <- 1
+        if (q > 0) {
+          zz <- (x[(t + j - q):(t + j - 1)] - ifelse(j < 2, phi %*% x[(t + j - p - 1):(t + j - 2)] + phi0, x_preds[t - t0 + j - 1]))
+          zt <- sapply(1:q, function(qq) ifelse(j - qq > 0, 0, zz[qq]))
+        } else {
+          zt <- matrix(0)
+        }
+        if (p > 0) {
+          xt <- as.matrix(sapply(1:p, function(pp) ifelse(j - pp > 0, x_preds[t - t0 + j - pp], x[t + j - pp] - phi0))  )
+        } else {
+          xt <- matrix(0)
+        }
+        
+        if (p == 0 && q > 0) {
+          xp <- as.numeric(phi0 + theta %*% zt)
+        } else if (p > 0 && q == 0) {
+          xp <- as.numeric(phi0 + phi %*% xt)
+        } else if (p > 0 && q > 0) {
+          xp <- as.numeric(
+              phi0 + #  ARMA intercept
+              phi %*% xt + # AR part
+              theta %*% zt # MA part
+          )          
+        }
+
+        x_preds[t - t0 + j] <- xp
+      }
+    }
+    
+    m <- length(x_preds)
+    ne <- length(temp_eval$time)
+    
+    xp <- as.matrix(na.omit(data.frame(x_preds[(m - ne + 1):m])))
+    np <- length(xp)
+    
+    x_predictions[[h]] <- xp
+    t_predictions[[h]] <- temp_eval$time[(ne - np + 1):ne]
   }
+  
+  plot(x=temp_eval$time, y=temp_eval$Tres, type="b", lwd=1.5, main=paste("ARMA(",p,",",q,") Multiple-Step predictions"),
+       xlab="day", ylab="res(T)[°C]")
+  for (h in 1:hmax) {
+    lines(x=t_predictions[[h]], y=x_predictions[[h]], col=rgb(0, (1 - h / hmax), h / hmax), lwd=2)
+  }
+  legend("topleft", legend=sapply(1:hmax, function(h) paste("h = ", h)),
+         col=sapply(1:hmax, function(h) rgb(0, (1 - h / hmax), h / hmax)), lty=1,lwd=2 , cex=0.75)
+  
 }
 
-m <- length(x_preds)
-ne <- length(temp_eval$time)
 
-plot(x=temp$time[t0:n], y=temp$T[t0:n], type="l", lwd=1.5)
-lines(x=temp_eval$time, y=x_preds[(m - ne + 1):m], col="blue", lwd=2)
-lines(x=temp$time[t0:(nt + 1)], y=x_preds[1:(m - ne)], col="blue", lwd=2, lty=2)
 
 #'
 #' --------------------------------------------------------------------------------------------------------------
