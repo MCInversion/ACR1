@@ -1366,7 +1366,7 @@ for (i in 1:5) {
   for (h in 1:hmax) {
     # h <- 1
     stepmax <- max(p, q, h)
-    t0 <- nt - stepmax + 1
+    t0 <- nt + 1
     x_preds <- numeric() # h-step prediction estimates
     
     for (t in t0:n) {
@@ -1404,7 +1404,7 @@ for (i in 1:5) {
     m <- length(x_preds)
     ne <- length(temp_eval$time)
     
-    x_preds <- as.matrix(na.omit(data.frame(x_preds[(m - ne + 1):m] + temp_eval$sCos ) ) )
+    x_preds <- as.matrix(na.omit(data.frame(x_preds[1:ne] + temp_eval$sCos ) ) )
     np <- length(x_preds)
     
     #if (ne > np) {
