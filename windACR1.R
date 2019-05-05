@@ -719,7 +719,7 @@ randtests::runs.test(U)
 #' the white noise, for instance, up to q time steps back. 
 #' 
 
-```{r newRegressionAcf, fig.width=11, fig.height=5.5}
+```{r newRegressionAcf, fig.width=12, fig.height=5}
 par(mfrow=c(1,3))
 plot(x=temp_test$time, y=temp_test$Tres, main="Residues",xlab="day",ylab="T[°C]",axes=F, type="l")
 axis(side=1, at=seq(1, 365, 7))
@@ -1526,5 +1526,133 @@ pp.test(x)
 #' The test relies on testing for zero variance of an i.i.d process present in the stochastic trend part in `x_t ~ ST_t + eps_t`, or
 #' alternatively with deterministic trend: `x_t ~ ST_t + delta * t + eps_t`. 
 
-kpss.test(x, null="Level")
-kpss.test(x, null="Trend")
+x <- as.vector(x, mode="double")
+n <- length(x)
+ntrend.reg <- lm(x ~ 1)
+summary(ntrend.reg)
+e <- residuals(ntrend.reg)
+table <- c(0.739, 0.574, 0.463, 0.347) # KPSS table for regression without drift
+
+tablep <- c(0.01, 0.025, 0.05, 0.10)
+s <- cumsum(e)
+eta <- sum(s^2)/(n^2)
+s2 <- sum(e^2)/n
+
+l <- 3 # truncation lag parameter
+s2 <- .C("tseries_pp_sum", as.vector(e, mode="double"), as.integer(n), as.integer(l), s2=as.double(s2))$s2
+kpssStat <- eta/s2
+pval <- approx(table, tablep, kpssStat, rule=2)$y
+c(KPSS=kpssStat, pval=pval)
+
+#' As it appears, the stationarity null hypothesis is rejected. With pvalue > 0.1. The same result can be obtained using
+#' the `kpss.test` function from the `tseries` package:
+
+( testNDrift <- kpss.test(x, null="Level") )
+( testDrift <- kpss.test(x, null="Trend") )
+
+#' where the second result corresponds to testing the second type of regression `x ~ t` with trend, which shows that we can
+#' accept the stationarity hypothesis with p-value 
+testDrift$p.value
+
+#' By regressing the given trend
+
+t <- 1:n
+trend.reg <- lm(x ~ t)
+summary(trend.reg)
+e <- residuals(trend.reg)
+table2 <- c(0.216, 0.176, 0.146, 0.119) # KPSS statistic table for regression with drift
+s <- cumsum(e)
+eta <- sum(s^2)/(n^2)
+s2 <- sum(e^2)/n
+s2 <- .C("tseries_pp_sum", as.vector(e, mode="double"), as.integer(n), as.integer(l), s2=as.double(s2))$s2
+kpssStat <- eta/s2
+pval <- approx(table2, tablep, kpssStat, rule=2)$y
+c(KPSS=kpssStat, pval=pval)
+
+#' This is possibly due to the cut-off of the test part of the time series, which does not entail its entire 365-day period.
+#' The test can also be carried out for larger values of truncation lag parameter:
+
+kpss.test(x, null="Level", lshort = F)
+kpss.test(x, null="Trend", lshort = F)
+
+#'
+#' ### 6.2 Identifying Models of Integrated Processes ###
+#' 
+#' We analyze the time series visually:
+
+```{r integRegressionAcf0, fig.width=12, fig.height=5, echo=FALSE}
+par(mfrow=c(1,3))
+plot(x=temp_test$time, y=x, main="x_t",xlab="day",ylab="T[°C]",axes=F, type="l")
+axis(side=1, at=seq(1, 365, 7))
+axis(side=2, at=seq(round(min(x), digits=1), round(max(x), digits=1), by=2))
+box()
+
+ACF <- acf(x, lag.max=50, plot=F)
+lags <- which(abs(acf(x, lag.max=50, main="ACF")$acf[-1]) > 2/sqrt(n))
+lagValues <- numeric()
+for(i in 1:length(lags)) {
+  lagValues[i] <- ACF$acf[lags[i] + 1]
+  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
+}
+acf(x, lag.max=50, main="PACF", type="partial")
+
+```{r integRegressionAcf, fig.width=12, fig.height=5, echo=FALSE}
+par(mfrow=c(1,3))
+plot(x=temp_test$time[1:m], y=dx, main="diff(x_t)",xlab="day",ylab="T[°C]",axes=F, type="l")
+axis(side=1, at=seq(1, 365, 7))
+axis(side=2, at=seq(round(min(dx), digits=1), round(max(dx), digits=1), by=2))
+box()
+
+ACF <- acf(dx, lag.max=50, plot=F)
+lags <- which(abs(acf(dx, lag.max=50, main="ACF")$acf[-1]) > 2/sqrt(m))
+lagValues <- numeric()
+for(i in 1:length(lags)) {
+  lagValues[i] <- ACF$acf[lags[i] + 1]
+  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
+}
+acf(dx, lag.max=50, main="PACF", type="partial")
+
+
+#' It seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data
+#' denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as
+#' integrated processes.
+#' 
+#' First, we need to estimate the difference order `d`. For most processes `d = 1`. The remaining parameters can be automatically
+#' estimated via a search function, for example:
+
+require(forecast)
+auto.arima(x, d=1, ic = "bic")
+
+#' However if we do not specify a difference order, the `auto.arima` method 
+
+auto.arima(x, ic = "bic")
+
+#' returns the best estimate equivalent to an `ARMA(1, 0)` model, which is what the Hannan-Rissanen procedure in section 4 returned. 
+#' This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility
+#' that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different
+#' integrated processes of type ARIMA or alternatively ARFIMA and GARCH models respectively. SARIMA models will be omitted due to our 
+#' inability to extrapolate sufficient seasonal data from the time series which only contains one annual cycle.
+#' 
+#' #### 6.2.1 ARIMA ####
+#' 
+
+pmax = 5; qmax = 5; dmax = 1;
+models.arima <- list();
+for (p in 0:pmax) {
+  for (q in 0:qmax) {
+    for (d in 0:dmax)  {
+      tmp <- tryCatch(arima(x, order=c(p,d,q)), error=function(e) e, warning=function(w) w)
+      if (length(tmp$message) == 0) {
+        models.arima[[paste("ARIMA(",p,",",d,",",q,")")]] <- c(p=p, d=d, q=q, rss=tmp$sigma2, AIC=tmp$aic, BIC=InfCrit(tmp, type="BIC"))
+      }
+    }
+  }
+}
+
+models.arima <- data.frame(matrix(unlist(models.arima), nrow=length(models.arima), byrow=T))
+names(models.arima) <- c("p", "d", "q", "RSS", "AIC", "BIC")
+head(models.arima)
+
+bic <- models.arima[6]
+bestArima <- models.arima[order(bic),]
+head(bestArima)
