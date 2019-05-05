@@ -1635,15 +1635,17 @@ auto.arima(x, ic = "bic")
 #' 
 #' #### 6.2.1 ARIMA ####
 #' 
+#' Since we have already searched for ARIMA type models in the search space of the time series, we only need to consider processes
+#' of integration order `d > 0`. For comparison we consiter models with `d = 0` which we analyzed in sections 4 and 5.
 
-pmax = 5; qmax = 5; dmax = 1;
+pmax = 5; qmax = 5; dmax = 2;
 models.arima <- list();
 for (p in 0:pmax) {
   for (q in 0:qmax) {
     for (d in 0:dmax)  {
       tmp <- tryCatch(arima(x, order=c(p,d,q)), error=function(e) e, warning=function(w) w)
       if (length(tmp$message) == 0) {
-        models.arima[[paste("ARIMA(",p,",",d,",",q,")")]] <- c(p=p, d=d, q=q, rss=tmp$sigma2, AIC=tmp$aic, BIC=InfCrit(tmp, type="BIC"))
+        models.arima[[paste(p,",",d,",",q)]] <- c(p=p, d=d, q=q, rss=tmp$sigma2, AIC=tmp$aic, BIC=InfCrit(tmp, type="BIC"))
       }
     }
   }
@@ -1653,6 +1655,39 @@ models.arima <- data.frame(matrix(unlist(models.arima), nrow=length(models.arima
 names(models.arima) <- c("p", "d", "q", "RSS", "AIC", "BIC")
 head(models.arima)
 
+#' And like we did in section 4, after getting a large set of models of varying quality, we sort the resulting list 
+#' according to their BIC's:
+
 bic <- models.arima[6]
 bestArima <- models.arima[order(bic),]
 head(bestArima)
+
+#' And notice how models of integrated processes occupy the first 6 places, even though the best model is a stationary ARMA(1,0).
+#' For future use we can just filter the models with `d > 0`:
+
+bestArima1 <- bestArima[which(bestArima[2] == 1),]
+head(bestArima1)
+
+#'
+#' #### 6.2.2 SARIMA ####
+#' 
+#' Seasonal Auto-Regressive Integrated Moving-Average type models use the fact that for each value `x_t`
+#' the model retains memory from its previous period of length `L`, of potentially `D`-th difference, giving rise to additional parameters
+#' `(P, D, Q)` and `L` to an ARIMA model.
+#' For example we can model the residual time series as a SARIMA(1,1,1)x(1,1,1)[10] (with a 10-day period):
+
+( mod <- arima(x, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=10)) )
+
+#' and compare the results with an ARIMA(1,1,1) model:
+
+mod2 <- arima(x, order=c(1,1,1))
+
+```{r arimavssarima, fig.width=11, fig.height=6}
+plot(x, xlab="day", ylab="[°C]", main="ARIMA vs SARIMA")
+lines(x - mod2$residuals, col="blue", lwd=2)
+lines(x - mod$residuals, col="red", lwd=2)
+legend("topleft", legend=c("ARIMA(1,1,1)","SARIMA(1,1,1)x(1,1,1)[10]"),
+       col=c("blue","red"), lty=1,lwd=2 , cex=0.8)
+
+#' We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the 
+#' model has no previous period to base its fitted values upon.
