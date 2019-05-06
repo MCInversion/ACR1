@@ -1596,24 +1596,15 @@ for(i in 1:length(lags)) {
 }
 acf(x, lag.max=50, main="PACF", type="partial")
 
-```{r integRegressionAcf, fig.width=12, fig.height=5, echo=FALSE}
-par(mfrow=c(1,3))
-plot(x=temp_test$time[1:m], y=dx, main="diff(x_t)",xlab="day",ylab="T[°C]",axes=F, type="l")
-axis(side=1, at=seq(1, 365, 7))
-axis(side=2, at=seq(round(min(dx), digits=1), round(max(dx), digits=1), by=2))
-box()
 
-ACF <- acf(dx, lag.max=50, plot=F)
-lags <- which(abs(acf(dx, lag.max=50, main="ACF")$acf[-1]) > 2/sqrt(m))
-lagValues <- numeric()
-for(i in 1:length(lags)) {
-  lagValues[i] <- ACF$acf[lags[i] + 1]
-  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
-}
-acf(dx, lag.max=50, main="PACF", type="partial")
+#' The ACF and PACF plots above might suggest which correlation lags remain in the residues after extracting the seasonal component.
+#' More precisely:
 
+data.frame(cbind(lag=lags, ACF=lagValues))
 
-#' It seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data
+#' The correlation within the data is the highest for `L=1` and then for `L=13` and `L=22`. These values might turn out to be useful
+#' in further analysis when estimating correct periods for SARIMA type models, for example. 
+#' Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data
 #' denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as
 #' integrated processes.
 #' 
@@ -1630,8 +1621,7 @@ auto.arima(x, ic = "bic")
 #' returns the best estimate equivalent to an `ARMA(1, 0)` model, which is what the Hannan-Rissanen procedure in section 4 returned. 
 #' This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility
 #' that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different
-#' integrated processes of type ARIMA or alternatively ARFIMA and GARCH models respectively. SARIMA models will only be used as
-#' illustrative examples, since we are unable to extrapolate a period shorter than the entire length of the time series.
+#' integrated processes of type ARIMA, SARIMA or alternatively ARFIMA and GARCH models respectively.
 #' 
 #' #### 6.2.1 ARIMA ####
 #' 
@@ -1645,7 +1635,8 @@ for (p in 0:pmax) {
     for (d in 0:dmax)  {
       tmp <- tryCatch(arima(x, order=c(p,d,q)), error=function(e) e, warning=function(w) w)
       if (length(tmp$message) == 0) {
-        models.arima[[paste(p,",",d,",",q)]] <- c(p=p, d=d, q=q, rss=tmp$sigma2, AIC=tmp$aic, BIC=InfCrit(tmp, type="BIC"))
+        key <- paste(p,",",d,",",q)
+        models.arima[[key]] <- c(p=p, d=d, q=q, rss=tmp$sigma2, AIC=tmp$aic, BIC=InfCrit(tmp, type="BIC"))
       }
     }
   }
@@ -1687,12 +1678,12 @@ plot(x, xlab="day", ylab="[°C]", main="ARIMA vs SARIMA")
 lines(x - mod2$residuals, col="blue", lwd=2)
 lines(x - mod$residuals, col="red", lwd=2)
 legend("topleft", legend=c("ARIMA(1,1,1)","SARIMA(1,1,1)x(1,1,1)[10]"),
-       col=c("blue","red"), lty=1,lwd=2 , cex=0.8)
+       col=c("blue","red"), lty=1, bty="o",lwd=2 , cex=0.8)
 
 #' We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the 
 #' model has no previous period to base its fitted values upon. 
-#' After searching through combinations of ARIMA `(p,d,q)` and SARIMA parameters `(P,D,Q)` for period `L = 10` days, we chose the
-#' following parameters with the lowest BIC:
+#' After searching through combinations of ARIMA `(p,d,q)` and SARIMA parameters `(P,D,Q)` for periods `L = 13, 16, 22` and `45` days, 
+#' we chose the following orders:
 
 sarimaParams <- list(
   list(p=1, d=0, q=0, P=0, D=1, Q=1),
@@ -1705,18 +1696,21 @@ sarimaParams <- list(
 #' which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
 
 models.sarima <- list()
-for (i in 1:length(sarimaParams)) {
-  p = sarimaParams[[i]]$p; d = sarimaParams[[i]]$d; q = sarimaParams[[i]]$q;
-  P = sarimaParams[[i]]$P; D = sarimaParams[[i]]$D; Q = sarimaParams[[i]]$Q;
-  model <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=10))
-  key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")")
-  models.sarima[[key]] <- c(p=p, d=d, q=q, P=P, D=D, Q=Q, rss=model$sigma2, AIC=model$aic, BIC=InfCrit(model, type="BIC"))
+for (L in c(13, 16, 22, 45)) {
+  for (i in 1:length(sarimaParams)) {
+    p = sarimaParams[[i]]$p; d = sarimaParams[[i]]$d; q = sarimaParams[[i]]$q;
+    P = sarimaParams[[i]]$P; D = sarimaParams[[i]]$D; Q = sarimaParams[[i]]$Q;
+    model <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
+    key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
+    
+    models.sarima[[key]] <- c(p=p, d=d, q=q, P=P, D=D, Q=Q, L=L, rss=model$sigma2, AIC=model$aic, BIC=InfCrit(model, type="BIC"))
+  }
 }
 models.sarima <- data.frame(matrix(unlist(models.sarima), nrow=length(models.sarima), byrow=T))
-names(models.sarima) <- c("p", "d", "q", "P", "D", "Q", "RSS", "AIC", "BIC")
+names(models.sarima) <- c("p", "d", "q", "P", "D", "Q", "L", "RSS", "AIC", "BIC")
 head(models.sarima)
 
-bic <- models.sarima[9]
+bic <- models.sarima[10]
 bestSarima <- models.sarima[order(bic),]
 head(bestSarima)
 
@@ -1725,3 +1719,96 @@ head(bestSarima)
 #' So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing 
 #' computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that
 #' the nonzero values of the data's ACF still appear after 30 steps.
+
+library(fracdiff)
+model.fd <- fracdiff(x, nar=0, nma=0)
+model.fd$d
+
+( modelf <- forecast::arfima(x))
+plot(forecast::forecast(modelf, h=100))
+
+#' ### 6.3 Predictive Properties of the Chosen Models ###
+#' 
+#' #### 6.3.1 ARIMA ####
+
+X <- model.sCos$residuals
+
+```{r arimaPreds, fig.width=11, fig.height=5}
+library(forecast)
+par(mfrow=c(1,1))
+for (i in 1:5) {
+  p = bestArima1[i,1]; d = bestArima1[i,2]; q = bestArima1[i,3];
+  key <- paste("(",p,",",d,",",q,")", sep="")
+  model_estim <- arima(x, order=c(p,d,q))
+  model <- Arima(X, order=c(p,d,q), model=model_estim)
+
+  xp <- tail(fitted(model), ne)
+  fc <- forecast(model_estim, h=ne)
+  
+  rmse <- sqrt(mean((xp - temp_eval$Tres)^2))
+
+  fc$mean <- fc$mean + temp_eval$sCos
+  fc$lower <- fc$lower + temp_eval$sCos
+  fc$upper <- fc$upper + temp_eval$sCos
+  fc$x <- fc$x + temp_test$sCos
+  xp <- xp + temp_eval$sCos
+  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste("ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+  lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
+  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+  legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+         col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
+}
+
+#' #### 6.3.2 SARIMA ####
+
+```{r sarimaPreds, fig.width=11, fig.height=5}
+par(mfrow=c(1,1))
+for (i in 1:6) {
+  p = bestSarima[i, 1]; d = bestSarima[i, 2]; q = bestSarima[i, 3];
+  P = bestSarima[i, 4]; D = bestSarima[i, 5]; Q = bestSarima[i, 6];
+  L = bestSarima[i, 7];
+  key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
+  model_estim <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
+  model <- Arima(X, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
+  
+  xp <- tail(fitted(model), ne)
+  fc <- forecast(model_estim, h=ne)
+  
+  rmse <- sqrt(mean((xp - temp_eval$Tres)^2))
+  
+  fc$mean <- fc$mean + temp_eval$sCos
+  fc$lower <- fc$lower + temp_eval$sCos
+  fc$upper <- fc$upper + temp_eval$sCos
+  fc$x <- fc$x + temp_test$sCos
+  xp <- xp + temp_eval$sCos
+  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste(ifelse(P + D + Q > 0, "S", ""),"ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+  lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
+  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+  legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+         col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
+}
+
+#' #### Best ARMA model (for comparison) ####
+
+```{r armaPred, fig.width=11, fig.height=5}
+par(mfrow=c(1,1))
+model_estim <- arima(x, order=c(1,0,0))
+model <- Arima(X, order=c(1,0,0), model=model_estim)
+
+key <- paste("(",p,",",d,",",q,")", sep="")
+
+xp <- tail(fitted(model), ne)
+fc <- forecast(model_estim, h=ne)
+
+rmse <- sqrt(mean((temp_eval$Tres - xp)^2))
+
+fc$mean <- fc$mean + temp_eval$sCos
+fc$lower <- fc$lower + temp_eval$sCos
+fc$upper <- fc$upper + temp_eval$sCos
+fc$x <- fc$x + temp_test$sCos
+xp <- xp + temp_eval$sCos
+plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste("ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
+lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+       col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
