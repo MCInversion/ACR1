@@ -1630,8 +1630,8 @@ auto.arima(x, ic = "bic")
 #' returns the best estimate equivalent to an `ARMA(1, 0)` model, which is what the Hannan-Rissanen procedure in section 4 returned. 
 #' This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility
 #' that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different
-#' integrated processes of type ARIMA or alternatively ARFIMA and GARCH models respectively. SARIMA models will be omitted due to our 
-#' inability to extrapolate sufficient seasonal data from the time series which only contains one annual cycle.
+#' integrated processes of type ARIMA or alternatively ARFIMA and GARCH models respectively. SARIMA models will only be used as
+#' illustrative examples, since we are unable to extrapolate a period shorter than the entire length of the time series.
 #' 
 #' #### 6.2.1 ARIMA ####
 #' 
@@ -1690,4 +1690,38 @@ legend("topleft", legend=c("ARIMA(1,1,1)","SARIMA(1,1,1)x(1,1,1)[10]"),
        col=c("blue","red"), lty=1,lwd=2 , cex=0.8)
 
 #' We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the 
-#' model has no previous period to base its fitted values upon.
+#' model has no previous period to base its fitted values upon. 
+#' After searching through combinations of ARIMA `(p,d,q)` and SARIMA parameters `(P,D,Q)` for period `L = 10` days, we chose the
+#' following parameters with the lowest BIC:
+
+sarimaParams <- list(
+  list(p=1, d=0, q=0, P=0, D=1, Q=1),
+  list(p=1, d=0, q=1, P=0, D=1, Q=1),
+  list(p=2, d=0, q=0, P=0, D=1, Q=1),
+  list(p=0, d=1, q=2, P=0, D=1, Q=1),
+  list(p=2, d=1, q=1, P=0, D=1, Q=1)
+)
+
+#' which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
+
+models.sarima <- list()
+for (i in 1:length(sarimaParams)) {
+  p = sarimaParams[[i]]$p; d = sarimaParams[[i]]$d; q = sarimaParams[[i]]$q;
+  P = sarimaParams[[i]]$P; D = sarimaParams[[i]]$D; Q = sarimaParams[[i]]$Q;
+  model <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=10))
+  key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")")
+  models.sarima[[key]] <- c(p=p, d=d, q=q, P=P, D=D, Q=Q, rss=model$sigma2, AIC=model$aic, BIC=InfCrit(model, type="BIC"))
+}
+models.sarima <- data.frame(matrix(unlist(models.sarima), nrow=length(models.sarima), byrow=T))
+names(models.sarima) <- c("p", "d", "q", "P", "D", "Q", "RSS", "AIC", "BIC")
+head(models.sarima)
+
+bic <- models.sarima[9]
+bestSarima <- models.sarima[order(bic),]
+head(bestSarima)
+
+#' #### 6.2.3 ARFIMA ####
+#' 
+#' So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing 
+#' computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that
+#' the nonzero values of the data's ACF still appear after 30 steps.
