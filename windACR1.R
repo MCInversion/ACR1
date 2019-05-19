@@ -1062,8 +1062,6 @@ for (i in 1:5) {
   Nonzeros[[i]] <- NonZeroValues(ACFs[[i]], zero)
 }
 
-
-
 #' Using the zero-value approximation: `2/sqrt(nt)`, where `nt` is the length of the residual time series,
 #' we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant
 #' residual lags such as 14, and 23 in the model.sCos in section 3). The significance of the 23-day lag, however,
@@ -1602,7 +1600,7 @@ acf(x, lag.max=50, main="PACF", type="partial")
 
 data.frame(cbind(lag=lags, ACF=lagValues))
 
-#' The correlation within the data is the highest for `L=1` and then for `L=13` and `L=22`. These values might turn out to be useful
+#' The correlation within the data is the highest for `L=1`, `L=2`, `L=3`, `L=7` and then for `L=48` and `L=49`. These values might turn out to be useful
 #' in further analysis when estimating correct periods for SARIMA type models, for example. 
 #' Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data
 #' denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as
@@ -1693,10 +1691,12 @@ sarimaParams <- list(
   list(p=2, d=1, q=1, P=0, D=1, Q=1)
 )
 
+sarimaPeriods <- c(13, 16, 22, 45)
+
 #' which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
 
 models.sarima <- list()
-for (L in c(13, 16, 22, 45)) {
+for (L in sarimaPeriods) {
   for (i in 1:length(sarimaParams)) {
     p = sarimaParams[[i]]$p; d = sarimaParams[[i]]$d; q = sarimaParams[[i]]$q;
     P = sarimaParams[[i]]$P; D = sarimaParams[[i]]$D; Q = sarimaParams[[i]]$Q;
@@ -1714,77 +1714,294 @@ bic <- models.sarima[10]
 bestSarima <- models.sarima[order(bic),]
 head(bestSarima)
 
+#' The SARIMA periods were chosen by searching through a much larger parameter space (with incremental periods 1 to 49). 
+#' For the purposes of this presentation, we omit the procedure to save computation time.
+#' 
 #' #### 6.2.3 ARFIMA ####
 #' 
 #' So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing 
 #' computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that
 #' the nonzero values of the data's ACF still appear after 30 steps.
 
+
 library(fracdiff)
-model.fd <- fracdiff(x, nar=0, nma=0)
+model.fd <- fracdiff(x, nar=1, nma=0)
 model.fd$d
 
-( modelf <- forecast::arfima(x))
+model.fd$log.likelihood
+
+( modelf <- forecast::arfima(x) )
 plot(forecast::forecast(modelf, h=100))
 
+pmax = 5; qmax = 5;
+models.arfima <- list()
+for (p in 0:pmax) {
+  for (q in 0:qmax) {
+    tmp <- tryCatch(fracdiff(x, nar=p, nma=q), error=function(e) e, warning=function(w) w)
+    if (length(tmp$message) == 0) {
+      d <- tmp$d
+      key <- paste(p,",",d,",",q)
+      models.arfima[[key]] <- c(p=p, d=d, q=q, rss=tmp$sigma, BIC=(log(n) * (p + q + 1) - 2 * tmp$log.likelihood))
+    }
+  }
+}
+
+models.arfima <- data.frame(matrix(unlist(models.arfima), nrow=length(models.arfima), byrow=T))
+names(models.arfima) <- c("p", "d", "q", "RSS", "BIC")
+head(models.arfima)
+
+bic <- models.arfima[5]
+bestArfima <- models.arfima[order(bic),]
+head(bestArfima)
+
+#' #### 6.2.4 GARCH - Conditionally Heteroskedastic Models ####
+#' 
+#' Short for Generalized Auto-Regressive Conditionally Heteroskedastic, this set of models owe their non-stationary properties 
+#' to non-constant local variance (skedasticity) in time. 
+
+library(lmtest)
+( bpres_studentized <- bptest(model.cCos, studentize=T) )
+( bpres_nstud <- bptest(model.cCos, studentize=F) )
+
+#' In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions).
+#' This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of 
+#' a model we deem most fit for `x`:
+
+
+model_id <- 1
+p = bestSarima[model_id, 1]; d = bestSarima[model_id, 2]; q = bestSarima[model_id, 3];
+P = bestSarima[model_id, 4]; D = bestSarima[model_id, 5]; Q = bestSarima[model_id, 6]; L = bestSarima[model_id, 7];
+
+```{r sarimaData, fig.width=10, fig.height=5}
+require(astsa)
+sarim <- sarima(x, p=p, d=d, q=q, P=P, D=D, Q=Q, S=L) # we can use a different method with more output
+
+name <- paste("SARIMA(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
+
+sarimaModel <- Arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
+
+xres <- sarimaModel$residuals
+xres <- xres[L:length(xres)]
+
+```{r garchData, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+acf(xres, lag=50, main=paste(name," resid ACF"))
+acf(xres^2, lag=50, main=paste(name," resid PACF"))
+
+#' The residues `xres` of the chosen SARIMA model seem to be uncorrelated (white noise). Nevertheless if `xres^2` are correlated, they 
+#' could be modelled via a conditionally heteroskedastic model. The square errors show barely significant correlation, 
+#' For a generalized ARCH (GARCH) model we have 2 parameters `p` and `q` to choose. They are analogous to AR and MA terms, except
+#' they are also used as dimensions for another regression, namely for `(sigma_t)^2` which is the square series of the varying residuals. 
+
+require(tseries)
+p <- 1; q <- 0;
+modelGarch <- garch(xres, order=c(p,q), trace=F)
+garch_res <- modelGarch$residuals
+garch_res <- na.omit(garch_res)
+```{r garchACF, fig.width=10, fig.height=4}
+par(mfrow=c(1,2))
+acf(garch_res, lag=100, main=paste("GARCH(",p,",",q,") res"))
+acf(garch_res, lag=100, main=paste("GARCH(",p,",",q,") res"), type="partial")
+
+summary(modelGarch)
+
+#' The results suggest that GARCH fit changes nothing. Also considering the fact that the BP test confirmed the data's homoskedasticity,
+#' we should not use this model at all.
+#' 
 #' ### 6.3 Predictive Properties of the Chosen Models ###
 #' 
-#' #### 6.3.1 ARIMA ####
 
 X <- model.sCos$residuals
 
-```{r arimaPreds, fig.width=11, fig.height=5}
-library(forecast)
+```{r predictComparison, fig.width=12, fig.height=7}
 par(mfrow=c(1,1))
-for (i in 1:5) {
+plot_models <- vector()
+
+model1_id <- 1;
+p = bestArima[model1_id, 1]; d = bestArima[model1_id, 2]; q = bestArima[model1_id, 3];
+key <- paste("(",p,",",d,",",q,")", sep="")
+name <- paste("ARMA", key, sep="")
+plot_models[1] <- name
+
+ARMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)))), ne)
+
+model2_id <- 1;
+p = bestArima1[model2_id, 1]; d = bestArima1[model2_id, 2]; q = bestArima1[model2_id, 3];
+key <- paste("(",p,",",q,")", sep="")
+name <- paste("ARIMA", key, sep="")
+plot_models[2] <- name
+
+ARIMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)))), ne)
+
+model3_id <- 2;
+p = bestSarima[model3_id, 1]; d = bestSarima[model3_id, 2]; q = bestSarima[model3_id, 3];
+P = bestSarima[model3_id, 4]; D = bestSarima[model3_id, 5]; Q = bestSarima[model3_id, 6];
+L = bestSarima[model3_id, 7];
+key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
+name <- paste("SARIMA", key, sep="")
+plot_models[3] <- name
+
+SARIMA_predict <- tail(fitted(
+  Arima(X, order=c(p,d,q), 
+        model=arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L)), 
+        seasonal=list(order=c(P,D,Q), period=L))), ne)
+
+model4_id <- 1;
+p = bestArfima[model4_id, 1]; d = bestArfima[model4_id, 2]; q = bestArfima[model4_id, 3];
+key <- paste("(",p,",",round(d,2),",",q,")", sep="")
+name <- paste("ARFIMA", key, sep="")
+plot_models[4] <- name
+
+ARFIMA_predict <- tail(fitted(arfima(X, drange=c(0, d), model=fracdiff(x, nar=p, nma=q))), ne)
+
+x_test <- x + temp_test$sCos
+ARMA_predict <- as.numeric(ARMA_predict + temp_eval$sCos)
+ARIMA_predict <- as.numeric(ARIMA_predict + temp_eval$sCos)
+SARIMA_predict <- as.numeric(SARIMA_predict + temp_eval$sCos)
+ARFIMA_predict <- as.numeric(ARFIMA_predict + temp_eval$sCos)
+
+colors <- c(hsv((9.5 - 2) / 8), hsv((9.5 - 3) / 8), hsv((9.5 - 5) / 8), hsv(h=(9.5 - 7) / 8, v=0.7))
+
+plot(x_test, type="l", 
+     xlim=c(floor(0.9*length(x)), length(X)), ylim=c(3.5, 17),
+     main="1-step predictions of chosen models", xlab="day", ylab="[°C]")
+lines(x=nt:(nt + 1), y=temp$T[nt:(nt + 1)])
+lines(x=(nt + 1):(nt + ne), y=ARMA_predict, lwd=2, col=colors[1], type="l")
+lines(x=(nt + 1):(nt + ne), y=ARIMA_predict, lwd=2, col=colors[2], type="l")
+lines(x=(nt + 1):(nt + ne), y=SARIMA_predict, lwd=2, col=colors[3], type="l")
+lines(x=(nt + 1):(nt + ne), y=ARFIMA_predict, lwd=2, col=colors[4], type="l")
+
+lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="black", type="p", pch=1)
+legend("bottomleft", legend=c(plot_models,"data"),
+       col=c(colors, "black"), lty=c(1, 1, 1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, NA, NA, 1))
+
+#' We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type 
+#' (ARIMA, SARIMA, ARFIMA), more specifically according to the root mean square error (RMSE) of 1-step predictions
+#' 
+#' #### 6.3.1 ARIMA ####
+
+errors <- list()
+xp_resids <- list()
+
+```{r arimaPreds, fig.width=12, fig.height=5}
+library(forecast)
+par(mfrow=c(1,2))
+for (i in 1:6) {
   p = bestArima1[i,1]; d = bestArima1[i,2]; q = bestArima1[i,3];
   key <- paste("(",p,",",d,",",q,")", sep="")
+  name <- paste("ARIMA", key, sep="")
+
   model_estim <- arima(x, order=c(p,d,q))
   model <- Arima(X, order=c(p,d,q), model=model_estim)
 
   xp <- tail(fitted(model), ne)
   fc <- forecast(model_estim, h=ne)
   
-  rmse <- sqrt(mean((xp - temp_eval$Tres)^2))
+  xp_res <- temp_eval$Tres - xp
+  rmse <- sqrt(mean(xp_res^2))
+  rmse_h <- sqrt(mean((fc$mean - xp)^2))
+  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestArima[i, 6], 3))
+  xp_resids[[name]] <- xp_res
 
   fc$mean <- fc$mean + temp_eval$sCos
   fc$lower <- fc$lower + temp_eval$sCos
   fc$upper <- fc$upper + temp_eval$sCos
   fc$x <- fc$x + temp_test$sCos
   xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste("ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
   lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
-  legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
 
 #' #### 6.3.2 SARIMA ####
 
-```{r sarimaPreds, fig.width=11, fig.height=5}
-par(mfrow=c(1,1))
+```{r sarimaPreds, fig.width=12, fig.height=5}
+par(mfrow=c(1,2))
 for (i in 1:6) {
   p = bestSarima[i, 1]; d = bestSarima[i, 2]; q = bestSarima[i, 3];
   P = bestSarima[i, 4]; D = bestSarima[i, 5]; Q = bestSarima[i, 6];
   L = bestSarima[i, 7];
   key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
+  name <- paste(ifelse(P + D + Q > 0, "S", ""),"ARIMA", key, sep="")
+
   model_estim <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
   model <- Arima(X, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
   
   xp <- tail(fitted(model), ne)
   fc <- forecast(model_estim, h=ne)
   
-  rmse <- sqrt(mean((xp - temp_eval$Tres)^2))
+  xp_res <- temp_eval$Tres - xp
+  rmse <- sqrt(mean(xp_res^2))
+  rmse_h <- sqrt(mean((fc$mean - xp)^2))
+  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestSarima[i, 10], 3))
+  xp_resids[[name]] <- xp_res
   
   fc$mean <- fc$mean + temp_eval$sCos
   fc$lower <- fc$lower + temp_eval$sCos
   fc$upper <- fc$upper + temp_eval$sCos
   fc$x <- fc$x + temp_test$sCos
   xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste(ifelse(P + D + Q > 0, "S", ""),"ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
   lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
-  legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+         col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
+}
+
+#' Here we notice that the stabilisation effect in prediction values is not present in SARIMA `ne`-step predictions (length of the eval. part).
+#' This is caused by the periodic correlation within the series. Each step is correlated not only up to `p` steps in true history, `q` steps in
+#' noise history, with `d`-th unit root order, but also the same combination of correlations `L` steps into the past. This is the reason why 
+#' the fitted values seem to copy the time series in its first period, and then follow with the "memory" of this preceding section. Predicting
+#' an arbitrary number of steps will result in a repeating periodic pattern which does not decay, since it regresses against its values
+#' so far back.
+#' 
+#' In the prediction plots we notice that some models, particularly those with higher MA degree, differ quite substantially in the
+#' multiple-step prediction mean value compared to single-step predictions. This is most most noticeable in model:
+
+diffRMSE <- lapply(errors, function(e) c(model=e[1], dRMSE=abs(as.numeric(e[2]) - as.numeric(e[3]))))
+diffRMSE <- data.frame(matrix(unlist(diffRMSE), nrow=length(diffRMSE), byrow=T))
+names(diffRMSE) <- c("model", "dRMSE")
+dRMSE <- diffRMSE[2]
+( dRMSEmax <- diffRMSE[order(dRMSE, decreasing=T),][1,] )
+
+#'
+#' #### 6.3.3 ARFIMA ####
+#' 
+
+library(fracdiff)
+```{r arfimaPreds, fig.width=12, fig.height=5}
+par(mfrow=c(1,2))
+for (i in 1:6) {
+  p = bestArfima[i, 1]; d = bestArfima[i, 2]; q = bestArfima[i, 3];
+  key <- paste("(",p,",",round(d,2),",",q,")", sep="")
+  name <- paste("ARFIMA", key, sep="")
+
+  model_estim <- fracdiff(x, nar=p, nma=q)
+  model <- arfima(X, drange=c(0, d), model=model_estim)
+  
+  xp <- tail(fitted(model), ne)
+  fc <- forecast(model_estim, h=ne)
+  
+  xp_res <- temp_eval$Tres - xp
+  rmse <- sqrt(mean(xp_res^2))
+  rmse_h <- sqrt(mean((fc$mean - xp)^2))
+  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestArfima[i, 5], 3))
+  xp_resids[[name]] <- xp_res
+  
+  fc$mean <- fc$mean + temp_eval$sCos
+  fc$lower <- fc$lower + temp_eval$sCos
+  fc$upper <- fc$upper + temp_eval$sCos
+  fc$x <- fc$x + temp_test$sCos
+  xp <- xp + temp_eval$sCos
+  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
+  lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
+  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
 
@@ -1795,20 +2012,126 @@ par(mfrow=c(1,1))
 model_estim <- arima(x, order=c(1,0,0))
 model <- Arima(X, order=c(1,0,0), model=model_estim)
 
+o <- unlist(strsplit(orders[[1]],","));
+p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]]); d <- 0
 key <- paste("(",p,",",d,",",q,")", sep="")
 
 xp <- tail(fitted(model), ne)
 fc <- forecast(model_estim, h=ne)
 
-rmse <- sqrt(mean((temp_eval$Tres - xp)^2))
+xp_res <- temp_eval$Tres - xp
+rmse <- sqrt(mean(xp_res^2))
+rmse_h <- sqrt(mean((fc$mean - xp)^2))
 
 fc$mean <- fc$mean + temp_eval$sCos
 fc$lower <- fc$lower + temp_eval$sCos
 fc$upper <- fc$upper + temp_eval$sCos
 fc$x <- fc$x + temp_test$sCos
 xp <- xp + temp_eval$sCos
-plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste("ARIMA", key,", RMSE = ", round(rmse, digits=3), sep=""))
+plot(fc, lwd=1, xlab="day", ylab="[°C]", main=paste("ARIMA", key, sep=""), xlim=c(floor(0.4*length(x)), length(X)))
+mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
 lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
 lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
-legend("topleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
+legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
        col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
+
+#' #### 6.3.4 Comparison of Predictive Properties ####
+#'
+#' So far, we have chosen 6 best models from each category (ARIMA, SARIMA, ARFIMA) of integrated processes. These 18 possibilities 
+#' (23 if we include ARMA models from section 4) have to be sorted according to their predictive properties, namely errors and DM test. 
+#' Since an `18 x 18` (`23 x 23`) Diebold-Mariano matrix seems too large for practical purposes, we will choose 5 models from all 
+#' categories with the lowest `RMSE` of single-step predictions.
+
+# we can also include errors from top 5 ARMA list
+
+for (i in 1:5) {
+  name <- paste("ARMA(", orders[[i]],")", sep="")
+  errors[[name]] <- c(model=name, RMSE=round(sqrt(merrors[[i]]), 5), RMSE_ne="-", BIC=round(as.numeric(bestArma[i, 1]), 3))
+  xp_resids[[name]] <- temp_eval$Tres - eval.predictions[[i]]
+}
+
+xp_resids <- matrix(unlist(xp_resids), nrow=length(xp_resids), byrow=T)
+errors <- data.frame(matrix(unlist(errors), nrow=length(errors), byrow=T))
+names(errors) <- c("model", "RMSE(1)", paste("RMSE(", ne, ")", sep=""), "BIC")
+
+# sort by RMSE(1)
+rmse1 <- errors[2]
+lowestRMSE1_resids <- xp_resids[order(rmse1),]
+( lowestRMSE1 <- errors[order(rmse1),] )
+
+#' And the 5 models with the lowest RMSE are:
+
+head(lowestRMSE1, 5)
+
+#' And we can apply the DM test on first 6 models:
+
+npred_models <- 6
+DieboldMarianoMatrix <- matrix(0, ncol=npred_models, nrow=npred_models)
+pvalueMatrix <- matrix(1, ncol=npred_models, nrow=npred_models)
+for(i in 1:npred_models) {
+  for(j in 1:npred_models) {
+    if(i==j) next
+    res_i <- lowestRMSE1_resids[i,]; res_j <- lowestRMSE1_resids[j,];
+    test <- forecast::dm.test(res_i, res_j)
+    DieboldMarianoMatrix[i,j] <- (test$p.value < alpha) * sign(test$statistic) 
+    pvalueMatrix[i,j] <- round(test$p.value, 3)
+  }
+}
+DieboldMarianoMatrix
+
+pvalueMatrix
+
+#' we observe that there are no significant differences between models. Perhaps the 5th and 6th model seem to have most significantly
+#' different predictive abilities from the very first. Significant differences appear as we increase the dimension of the
+#'  `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities 
+
+better_than <- list()
+npred_models <- 23
+#DieboldMarianoMatrix <- matrix(0, ncol=npred_models, nrow=npred_models)
+#pvalueMatrix <- matrix(1, ncol=npred_models, nrow=npred_models)
+for(i in 1:npred_models) {
+  for(j in 1:npred_models) {
+    if(i==j) next
+    res_i <- lowestRMSE1_resids[i,]; res_j <- lowestRMSE1_resids[j,];
+    test <- forecast::dm.test(res_i, res_j)
+    #DieboldMarianoMatrix[i,j] <- (test$p.value < alpha) * sign(test$statistic) 
+    if (test$p.value < alpha && test$statistic > 0) {
+      better_than[[as.character(i)]] <- c(model=as.character(lowestRMSE1[i, 1]), betterThan=as.character(lowestRMSE1[j, 1]))
+    }
+    #pvalueMatrix[i,j] <- round(test$p.value, 3)
+  }
+}
+better_than <- data.frame(matrix(unlist(better_than), nrow=length(better_than), ncol=2, byrow=T))
+names(better_than) <- c("model", "better than")
+better_than
+
+#' Thus according to Diebold-Mariano test, many of the previously computed ARMA-type models could have better predictive properties than
+#' some ARIMA models (and one SARIMA model). 
+#' 
+#' ## 6.4 Conclusions ##
+#'  
+#'  As the matter of fact, different types of models of integrated processes capture different properties of the time series. 
+#'  
+#'  While ARIMA models (with `d > 0`) seem to outcompete their ARMA counterparts in both `BIC` and `RMSE`, the DM-test 
+#'  seems to suggest that some ARMA models provide more accurate predictions than some ARIMA models. With no other model being 
+#'  significantly more accurate (except for `ARIMA(0,1,3)` being slightly more accurate than `SARIMA(1,0,1)(0,1,1)[45]`) than a 
+#'  SARIMA model, and also considering the sorting according to `BIC` as well as prediction error `RMSE`, we conclude that the 
+#'  following SARIMA models are the most accurate:
+
+head(lowestRMSE1, 5)
+
+#' `RMSE` of single-step predictions as the characteristic of choice for ordering. It should be noted that the mean value of `ne`-step
+#' predictions of the last model seems to drift too far from the actual data as well as the 1-step predictions:
+
+dRMSEmax
+
+#' We have chosen not to use models of type (G)ARCH since the BP-test of the initial seasonal model confirmed the homoskedasticity of
+#' residuals with p-values:
+
+bpres_studentized$p.value
+
+#' for the studentized version of the test, and
+
+bpres_nstud$p.value
+
+#' for the non-studentized version.
