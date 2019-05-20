@@ -1,144 +1,179 @@
-#' #Methods of Time Series Analysis Applied to Weather Measurements on a Wind Farm#
+---
+title: "WindACR1"
+author: "Martin Cavarga"
+date: "5/20/2019"
+output: html_document
+---
 
-#' ## Introduction ##
-#' The chosen source of data is a wind farm located in the North Sea
-#'  (with coords: 54.01433캮L, 6.587667캞L) denoted as LES (1y 2015-01-01 2015-12-31 cfsr) 
-#'  which comes from website http://www.vortexfdc.com/, specifically designed to provide its
-#'  users with weather data for potential wind farm sites. This specific dataset has been 
-#'  obtained (for free) from year 2015, and contains a variety of measurements, ranging from
-#' wind velocity magnitude, through the wind direction angle, temperature up to dimensionless 
-#' characteristics like  the Richardson number "Ri" which corresponds to the ratio of buoyancy
-#' over shear flow.
-#' 
-#' In the first 7 parts of this project, I focus on the analysis of a single variable, namely
-#' temperature T [캜]. Since the dataset consist of over 47 000 observations of 11 different 
-#' variables, and thus might be difficult to visualize, I've chosen to include only 
-#' the temperature measurements for each day at 12am.
-#' 
-#'---------------------------------------------------------------------------------------
-#' 
-#' ## 1. Visualization and Basic Stats ## 
-#' We begin by extracting the data from a downloaded file
+```{r}
+pkgTest <- function(x) {
+  if (!require(x,character.only = TRUE)) {
+    install.packages(x,dep=TRUE)
+    if(!require(x,character.only = TRUE)) stop("Package not found")
+  }
+}
+```
 
+# Methods of Time Series Analysis Applied to Weather Measurements on a Wind Farm 
+
+## Introduction
+
+The chosen source of data is a wind farm located in the North Sea (with coords: 54.01433째NL, 6.587667째EL) denoted as LES (1y 2015-01-01 2015-12-31 cfsr) which comes from website http://www.vortexfdc.com/, specifically designed to provide its
+  users with weather data for potential wind farm sites. This specific dataset has been obtained (for free) from year 2015, and contains a variety of measurements, ranging from wind velocity magnitude, through the wind direction angle, temperature up to dimensionless characteristics like  the Richardson number "Ri" which corresponds to the ratio of buoyancy over shear flow.
+In the first 7 parts of this project, I focus on the analysis of a single variable, namely temperature T [째C]. Since the dataset consist of over 47 000 observations of 11 different variables, and thus might be difficult to visualize, I've chosen to include only the temperature measurements for each day at 12am.
+ 
+ ---------------------------------------------------------------------------------------
+
+## 1. Visualization and Basic Stats
+
+We begin by extracting the data from a downloaded file
+
+```{r}
 temperature <- read.table("vortex_TS.txt", header = T, skip = 3, 
                           colClasses = "character")
+```
 
-#' and tagging the 8th column with a mark "T" for temperature
+ and tagging the 8th column with a mark "T" for temperature
+
+```{r}
 names(temperature)[8] <- c("T")
-#' then separating the time data into separate columns using the Tidyr package
+```
+ then separating the time data into separate columns using the Tidyr package
 
+```{r}
+suppressMessages(pkgTest("tidyr"))
 temperature <- tidyr::separate(data = temperature, col = YYYYMMDD, 
                                into = c("year","month","day"), sep=c(4,6))
 temperature <- tidyr::separate(data = temperature, col = HHMM, 
                                into = c("hour","minute"), sep=2)
+```
 
-#' and convert the time columns to numbers:
+ and convert the time columns to numbers:
 
+```{r}
 temperature <- as.data.frame(apply(temperature, 2, as.numeric))
+```
 
-#' Create a separate array with columns: "year","month","day","hour","minute","T"
-#' filtering only the temperature at 12am each day:
+ Create a separate array with columns: "year","month","day","hour","minute","T"
+ filtering only the temperature at 12am each day:
 
+```{r}
 temp <- temperature[temperature$hour==12 & temperature$minute==0,
                     c("year","month","day","hour","minute","T")] 
+```
 
-#' and uniting the time columns saving them as "YYYY-MM-DD-HH-MM" dates
+ and uniting the time columns saving them as "YYYY-MM-DD-HH-MM" dates
 
+```{r}
 temp <- tidyr::unite(temp, col=time, year, month, day, hour,
                      minute, sep="-", remove=T)
 temp$time <- strptime(temp$time, format="%Y-%m-%d-%H-%M")
 lastDate <- temp$time[length(temp$time)]
 temp$time <- as.numeric(difftime(temp$time, temp$time[1], units = "days"))
+```
 
-#'Now we can visualize the data as followed
+ Now we can visualize the data as followed
 
 ```{r basicDataPlot1, fig.width=9, fig.height=6}
+suppressMessages(pkgTest("rmarkdown"))
+suppressMessages(pkgTest("knitr"))
+
 par(mfrow=c(1,1))
-plot(T ~ temp$time, temp, type="p",xlab="day", ylab="T[캜]",main="Daily temperature at 12:00",axes=F)
+plot(T ~ temp$time, temp, type="p",xlab="day", ylab="T[째C]",main="Daily temperature at 12:00",axes=F)
 lines(temp$time, temp$T,col="black")
 axis(side=1, at=seq(1, 365, 7))
 axis(side=2, at=seq(min(temp$T), max(temp$T), by=2))
 box()
+```
 
-#' Now we can clearly see the periodic character of the time series which corresponds to the 
-#' seasonal changes in this latitude. For more details about the particular measurements we might
-#' calculate the basic characteristics of the set of values:
+ Now we can clearly see the periodic character of the time series which corresponds to the 
+ seasonal changes in this latitude. For more details about the particular measurements we might
+ calculate the basic characteristics of the set of values:
 
+```{r}
 stat <- summary(temp$T)
 stddev <- sd(temp$T, na.rm=TRUE)
 v <- as.numeric(c(stat[1],stat[6],stat[4],stat[3],stddev))
 names(v) <- c("Min.","Max.","Mean","Median","Std.Dev.")
 v
+```
 
-#' We see that the minimum temperature does not drop far below zero even during the winter, 
-#' possibly due to warm currents in the northern Atlantic Ocean.
-#' Aside from local fluctuations, the same pattern can be expected to appear in the next 
-#' year, and in the year after that. Perhaps after several decades we might see a change in the 
-#' annual average temperature due to global warming, for instance.
-#' 
-#'-----------------------------------------------------------------------------------------
-#'    
-#' ## 2 Time Series Decomposition: Trend & Seasonal Components ##
-#'
-#' Now we proceed to make the first step in the analysis of the extracted temperature data. 
-#' It is more or less clear that we will not be able to observe any linear or exponential trends
-#' on such small dataset. 
-#' We can verify the absence of a trend by testing the series with the Mann-Kendall rank test:
+ We see that the minimum temperature does not drop far below zero even during the winter, 
+ possibly due to warm currents in the northern Atlantic Ocean.
+ Aside from local fluctuations, the same pattern can be expected to appear in the next 
+ year, and in the year after that. Perhaps after several decades we might see a change in the 
+ annual average temperature due to global warming, for instance.
+ 
+ -----------------------------------------------------------------------------------------
+   
+## 2 Time Series Decomposition: Trend & Seasonal Components ##
 
+ Now we proceed to make the first step in the analysis of the extracted temperature data. 
+ It is more or less clear that we will not be able to observe any linear or exponential trends
+ on such small dataset. 
+ We can verify the absence of a trend by testing the series with the Mann-Kendall rank test:
+
+```{r}
+suppressMessages(pkgTest("randtests"))
 randtests::rank.test(temp$T)
+```
 
-#' Which suggests that there is no significant trend in the sample as a whole. We will return to the test in 
-#' section 3. 
-#'
-#' The only clearly visible systematic components are the periodic seasonal
-#' changes due to Earth's tilt with respect to the Ecliptic plane. 
-#' Clearly, the most visible cycle will repeat with a period of 365 days. Other fractions of this cycle 
-#' might be present as well. The remaining cycles can be observed by examining the ACF (Autocorrelation Function)
-#' which can be plotted using just the `acf` command:
+ Which suggests that there is no significant trend in the sample as a whole. We will return to the test in 
+ section 3. 
+
+ The only clearly visible systematic components are the periodic seasonal
+ changes due to Earth's tilt with respect to the Ecliptic plane. 
+ Clearly, the most visible cycle will repeat with a period of 365 days. Other fractions of this cycle 
+ might be present as well. The remaining cycles can be observed by examining the ACF (Autocorrelation Function)
+ which can be plotted using just the `acf` command:
 
 ```{r basicACFPlot2, fig.width=9, fig.height=4}
 par(mfrow=c(1,2))
 acf(temp$T, lag.max=365, main="Daily temp ACF")
 acf(temp$T, lag.max=365, type="partial",main="Daily temp PACF")
+```
 
-#' The second plot shows a partial autocorrelation function which also accounts for lags 
-#' shorter than the given lag k, that is: `k-1` , `k-2`, ... , `2`, `1`.
-#' With common sense, one deduces that the data already has a 365-day cycle, but from the
-#' correlogram we see that other smaller cycles are present in the time series as well. 
-#' Hence we model the cycles with the following periods
+ The second plot shows a partial autocorrelation function which also accounts for lags 
+ shorter than the given lag k, that is: `k-1` , `k-2`, ... , `2`, `1`.
+ With common sense, one deduces that the data already has a 365-day cycle, but from the
+ correlogram we see that other smaller cycles are present in the time series as well. 
+ Hence we model the cycles with the following periods
 
+```{r}
 n <- length(temp$T)
 seasons <- c(365, 365/2, 365/4, 365/12)
 names(seasons) <- c("S1.","S2.","S3","S4")
 seasons
+```
 
-#' We may assume that there will be a month-long cycles which correspond to the rotation of the Moon, rather
-#' than the calendar we use:
+ We may assume that there will be a month-long cycles which correspond to the rotation of the Moon, rather
+ than the calendar we use:
 
+```{r monthlyPlot, fig.width=10, fig.height=3}
 months = c(
   "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"
 )
-```{r monthlyPlot, fig.width=10, fig.height=3}
-par(mfrow=c(1,1))
-for (month in 1:12) {
-  from = ((month - 1)*floor(seasons[4]) + 1)
-  if (month == 12) {
-    to = n;
-  } else {
-    to = (month * floor(seasons[4]));
-  }
+mdays = c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+from = 1; to = 0;
+
+par(mfrow=c(1,2))
+for (month in 1:11) {
+  to = ifelse(month == 12, n, to + mdays[month])
   seg = from:to
   plot(x=1:length(seg), y=temp$T[seg], type="l",
-       main=paste("12:00 Temp. in ",months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[캜]", lwd=2, lty=1.5)
+       main=paste("12:00 Temp. in ", months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[째C]", lwd=2, lty=1.5)
+  from = to + 1
 }
+```
 
-#' The monthly data do not seem to have a repeating pattern. Hence we will only consider the annual 365-day period.
-#' 
-#' From now on we will separate our time series into a test part and an evaluation part. 
-#' All regression analysis will be performed on the test part. Predictions and their quality will
-#' be examined on the evaluation part. Generally the test part is taken as the first 80% of the original
-#' time series:
+The monthly data do not seem to have a repeating pattern. Hence we will only consider the annual 365-day period.
+ 
+From now on we will separate our time series into a test part and an evaluation part. 
+All regression analysis will be performed on the test part. Predictions and their quality will
+be examined on the evaluation part. Generally the test part is taken as the first 80% of the original
+time series:
 
+```{r}
 nt <- floor(n * 8 / 10)
 temp_test <- list()
 temp_test$T <- temp$T[1:nt]
@@ -149,34 +184,37 @@ temp_eval$T <- temp$T[(nt + 1):n]
 temp_eval$time <- temp$time[(nt + 1):n]
 
 par(mfrow=c(1,1))
-plot(x=temp$time, y=temp$T, type="p", main="Test and Evaluaion Parts", xlab="time", ylab="T[캜]")
+plot(x=temp$time, y=temp$T, type="p", main="Test and Evaluaion Parts", xlab="time", ylab="T[째C]")
 lines(x=temp_test$time, y=temp_test$T, lwd=1.5, col="blue")
 lines(x=temp_eval$time, y=temp_eval$T, lwd=1.5, col="green")
 legend("topleft", legend=c("test","eval"),
        col=c("blue","green"), lty=1,lwd=2 , cex=0.8)
+```
 
-#' Now we will take the chosen season and regress them against the test part:
+Now we will take the chosen season and regress them against the test part:
 
+```{r}
 model.sCos <- lm(T ~ cos(2*pi*temp$time/seasons[1]) + sin(2*pi*temp$time/seasons[1]) #+
                      #cos(2*pi*temp_test$time/seasons[2]) + sin(2*pi*temp_test$time/seasons[2]) +
                      #cos(2*pi*temp_test$time/seasons[3]*2) + sin(2*pi*temp_test$time/seasons[3]*2) +
                      #cos(2*pi*temp_test$time/seasons[4]) + sin(2*pi*temp_test$time/seasons[4])
                    , temp)
 summary(model.sCos)
+```
 
-#' The summary of the regression model implies that the annual period is significant.
-#' And now we can plot the residues after extracting the seasonal components
+The summary of the regression model implies that the annual period is significant.
+And now we can plot the residues after extracting the seasonal components
 
+```{r residPlot1, fig.width=10, fig.height=4}
 temp_test$sCos <- model.sCos$fitted.values[1:nt]
 temp_eval$sCos <- model.sCos$fitted.values[(nt + 1):n] # fitted values for later use
 
 temp_test$Tres <- model.sCos$residuals[1:nt]
 temp_eval$Tres <- model.sCos$residuals[(nt + 1):n] # residuals for later use
 
-```{r residPlot1, fig.width=10, fig.height=4}
 par(mfrow=c(1,2))
 plot(T ~ temp_test$time, temp_test,
-     main="Fitted Annual Temperature Model",xlab="day",ylab="T[캜]",axes=F)
+     main="Fitted Annual Temperature Model",xlab="day",ylab="T[째C]",axes=F)
 lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
 axis(side=1, at=seq(1, n, 7))
 axis(side=2, at=seq(min(temp_test$T), max(temp_test$T), by=2))
@@ -184,33 +222,36 @@ lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
 box()
 
 plot(x=temp_test$time, y=temp_test$Tres,
-     main="Residuals",xlab="day",ylab="res(T)[캜]",axes=F,type="l")
+     main="Residuals",xlab="day",ylab="res(T)[째C]",axes=F,type="l")
 axis(side=1, at=seq(1, n, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 box()
+```
 
-#' We can see that the residuals after extracting the seasonal components still haven't 
-#' lost some of their periodic behavior. Taking a look at the residual ACF and PACF we see 
-#' that non-zero correlation extends from lag of approximately 50 days.
+We can see that the residuals after extracting the seasonal components still have not 
+lost some of their periodic behavior. Taking a look at the residual ACF and PACF we see 
+that non-zero correlation extends from lag of approximately 50 days.
 
 ```{r ACFPlot2, fig.width=9, fig.height=4}
 par(mfrow=c(1,2))
 acf(temp_test$Tres, lag.max=365, main="Residual ACF")
 acf(temp_test$Tres, lag.max=365, main="Residual PACF", type="partial")
+```
 
-#' When examining the residual ACF we notice remaining significant correlation for multiple lag
-#' values. This is possible due to remaining cyclical components which will be found as significant
-#' frequencies after Fourier analysis in the next section.
-#'
-#'---------------------------------------------------------------------------------------
-#'             
-#' ## 3 Time Series Decomposition: Cyclical Components & Randomness Tests on Residuals ##
-#' ### 3.1 Cyclical Components and Fourier Analysis on Time Series ###
-#'
-#' Now we continue with another step in the decomposition of the original time series.
-#' We separate the remaining oscillations via discrete Fourier analysis. A continuous spectrum
-#' is generated from the ACF using the following function:
+When examining the residual ACF we notice remaining significant correlation for multiple lag
+values. This is possible due to remaining cyclical components which will be found as significant
+frequencies after Fourier analysis in the next section.
 
+ ---------------------------------------------------------------------------------------
+             
+## 3 Time Series Decomposition: Cyclical Components & Randomness Tests on Residuals
+### 3.1 Cyclical Components and Fourier Analysis on Time Series
+
+Now we continue with another step in the decomposition of the original time series.
+We separate the remaining oscillations via discrete Fourier analysis. A continuous spectrum
+is generated from the ACF using the following function:
+
+```{r SpecPlot2, fig.width=9, fig.height=4}
 SpecDens <- Vectorize(  
   FUN = function(omega, acov=NULL, data=NULL) {
     if(is.null(acov)) {
@@ -225,17 +266,18 @@ SpecDens <- Vectorize(
   vectorize.args = "omega"
 )
 
-```{r SpecPlot2, fig.width=9, fig.height=4}
+
 par(mfrow=c(1,2))
 temp_test.ACF <- as.numeric( acf(temp_test$Tres, type="covariance", plot=FALSE)$acf )
 plot(function(x) SpecDens(x, acov=temp_test.ACF), from=2*pi/(nt),
      to = 2 * pi / 4, xlab="frequency", ylab="spectral density")
 plot(function(x) SpecDens(2*pi / x, acov=temp_test.ACF), from=4, 
      to = nt, xlab="period", ylab="spectral density")
+```
 
-#' the figure on the right provides a better image of the (continuous) distribution of individual
-#' components with periods of oscillation. The hidden frequencies are obtained using discrete
-#' Fourier transform (more specifically Fast Fourier Transform):
+The figure on the right provides a better image of the (continuous) distribution of individual
+components with periods of oscillation. The hidden frequencies are obtained using discrete
+Fourier transform (more specifically Fast Fourier Transform):
 
 ```{r SpecDens,fig.width=11, fig.height=3.5}
 temp_test.FFT <- abs(fft(temp_test$Tres)) # Fourier transform
@@ -244,16 +286,19 @@ period <- 2 * pi / omega
 par(mfrow=c(1,1))
 plot(period, temp_test.FFT[seq_along(period)], main="Residual Spectral Density", 
      ylab="density", xlab="period (days)", type="h", log="x")
+```
 
-#' which we can then sort by density, and display the ones with the most weight:
+which we can then sort by density, and display the ones with the most weight:
 
+```{r}
 spectrum <- data.frame(f=temp_test.FFT[seq_along(omega)], omega=omega, period=period)
 spectrum <- spectrum[order(spectrum$f, decreasing = TRUE), ]
 head(spectrum, 10)
+```
 
-#' One reliable way to find the most significant frequencies is by using Fischer's Periodicity 
-#' Test:
+One reliable way to find the most significant frequencies is by using Fischer's Periodicity Test:
 
+```{r}
 signif <- cbind(spectrum[0,], 
                   data.frame(test.stat = numeric(0), crit.val = numeric(0)))
 spec <- spectrum
@@ -267,16 +312,17 @@ repeat {
 }
 rm(spec, test)
 signif
+```
 
-#' As it appears, Fischer's Test yields no significant frequency, but since we
-#' observe a sequence of significant frequencies that correspond with the ACF shown earlier.
-#' Nonetheless, we assume that, say, the first 10 might contribute to the oscillatory behavior
-#' of the time series. Thus we take:
+As it appears, Fischer's Test yields no significant frequency, but since we observe a sequence of significant frequencies that correspond with the ACF shown earlier. Nonetheless, we assume that, say, the first 10 might contribute to the oscillatory behavior of the time series. Thus we take:
 
+```{r}
 ( signif <- head(spectrum, 10) )
+```
 
-#' which we can then determine more precisely (by finding their local maxima) using the continuous spectral density:
+which we can then determine more precisely (by finding their local maxima) using the continuous spectral density:
 
+```{r}
 newsignif <- sapply(
   signif$omega,
   function(x) optimize(SpecDens, 
@@ -285,11 +331,11 @@ newsignif <- sapply(
                        maximum = T  )$maximum)
 ( newSignifs <- cbind(signif, data.frame(omega_sm = newsignif, 
                                        period_sm = 2 * pi / newsignif)) )
+```
 
+We can try to complete the regression using the first 3 periods with their fractions, but as it turns out, only the first one with its half is significant.
 
-#' We can try to complete the regression using the first 3 periods with their fractions, but as
-#' it turns out, only the first one with its half is significant.
-
+```{r}
 ( periods <- head(newSignifs, 3)$period_sm )
 
 model.cCos <- lm(Tres ~ cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test$time/periods[1]) +
@@ -299,25 +345,28 @@ model.cCos <- lm(Tres ~ cos(2*pi*temp_test$time/periods[1]) + sin(2*pi*temp_test
                    ,
                  temp_test)
 summary(model.cCos)
+```
 
-#' The cyclical components defined by first two periods seem to be significant, but we cannot be sure if they truly
-#' belong into the systematic model. For that reason we will save the residues of this model so that we can compare its
-#' predictive properties with only `sCos` in section 5.
-
-temp_test$cCos <- model.cCos$fitted.values
+The cyclical components defined by first two periods seem to be significant, but we cannot be sure if they truly
+belong into the systematic model. For that reason we will save the residues of this model so that we can compare its
+predictive properties with only `sCos` in section 5.
 
 ```{r cyclicalRegress,fig.width=10, fig.height=4}
+temp_test$cCos <- model.cCos$fitted.values
+
+
 par(mfrow=c(1,1))
 plot(x=temp_test$time, y=temp_test$Tres,
-     main="Temperature (Residues)",xlab="day",ylab="T[캜]",axes=F)
+     main="Temperature (Residues)",xlab="day",ylab="T[째C]",axes=F)
 axis(side=1, at=seq(1, nt, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 lines(x=temp_test$time, y=temp_test$cCos, col="blue", lwd=2)
 box()
+```
 
-#' We can combine the seasonal and cyclical components into a single model:
+We can combine the seasonal and cyclical components into a single model:
 
-
+```{r finalRegress,fig.width=10, fig.height=5}
 model.SCcos <- lm(T ~ cos(2*pi*temp$time/seasons[1]) + sin(2*pi*temp$time/seasons[1]) +
                         cos(2*pi*temp$time/periods[1]) + sin(2*pi*temp$time/periods[1]) +
                         cos(2*pi*temp$time/periods[1]*2) + sin(2*pi*temp$time/periods[1]*2),
@@ -327,10 +376,10 @@ summary(model.SCcos)
 temp_test$SCcos <- model.SCcos$fitted.values[1:nt]
 temp_eval$SCcos <- model.SCcos$fitted.values[(nt + 1):n]
 
-```{r finalRegress,fig.width=10, fig.height=5}
+
 par(mfrow=c(1,1))
 plot(T ~ temp_test$time, temp_test,
-     main="Modeling Seasonal and Cyclical Components",xlab="day",ylab="T[캜]",axes=F)
+     main="Modeling Seasonal and Cyclical Components",xlab="day",ylab="T[째C]",axes=F)
 lines(temp_test$time, temp_test$sCos, col="red", lwd=2)
 lines(temp_test$time, temp_test$SCcos, col="blue", lwd=2)
 axis(side=1, at=seq(1, nt, 7))
@@ -338,7 +387,8 @@ axis(side=2, at=seq(round(min(temp_test$T), digits=1), round(max(temp_test$T), d
 box()
 legend("topleft", legend=c("seasonal","seasonal + Fourier"),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.8)
-
+```
+```{r finalResidues,fig.width=10, fig.height=3.5}
 #length(temp_test$Tres)
 #length(model.sCos$residuals)
 
@@ -347,71 +397,67 @@ temp_test$Tres2 <- model.SCcos$residuals[1:nt] # for future use
 
 temp_eval$Tres2 <- model.SCcos$residuals[(nt + 1):n]
 
-```{r finalResidues,fig.width=10, fig.height=3.5}
+
 plot(x=temp_test$time, y=temp_test$Tres, type="l",
-     main="Residuals After Seasonal",xlab="day",ylab="T[캜]",axes=F)
+     main="Residuals After Seasonal",xlab="day",ylab="T[째C]",axes=F)
 axis(side=1, at=seq(1, nt, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 box()
 plot(x=temp_test$time, y=temp_test$Tres2, type="l",
-     main="Residuals After Seasonal & Cyclical",xlab="day",ylab="T[캜]",axes=F)
+     main="Residuals After Seasonal & Cyclical",xlab="day",ylab="T[째C]",axes=F)
 axis(side=1, at=seq(1, nt, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 box()
+```
 
-#'
-#'---------------------------------------------------------------------------------------
-#'
-#' ### 3.2 Radomness Tests on Residuals After Extracting Systematic Components ###
-#'
-#' Even though the original temperature time series has no trend, the residuals
-#' of the resultant time series with extracted both seasonal (and cyclical) components, that is: the systematic
-#' components might still contain some cyclical components. To verify that the residuals are a trajectory of a
-#' (stationary) stochastic process we use the, so called, "Randomness tests":
-#' 
-#' 1.) Durbin-Watson autocorrelation test
-#' 
-#' 2.) Zero ACF test
-#' 
-#' 3.) Signed Rank Test 
-#' 
-#' 4.) Spearman Rho Test
-#' 
-#' 5.) Turning Point Test 
-#' 
-#' 6.) Median Test 
-#' 
-#' 
-#' We begin by examining the residues after extracting all the systematic components in `model.sCos`, as well as their
-#' ACF:
+ ---------------------------------------------------------------------------------------
+
+### 3.2 Radomness Tests on Residuals After Extracting Systematic Components
+
+Even though the original temperature time series has no trend, the residuals of the resultant time series with extracted both seasonal (and cyclical) components, that is: the systematic components might still contain some cyclical components. To verify that the residuals are a trajectory of a (stationary) stochastic process we use the, so called, "Randomness tests":
+ 
+ 1.) Durbin-Watson autocorrelation test
+ 
+ 2.) Zero ACF test
+ 
+ 3.) Signed Rank Test 
+ 
+ 4.) Spearman Rho Test
+ 
+ 5.) Turning Point Test 
+ 
+ 6.) Median Test 
+ 
+ 
+We begin by examining the residues after extracting all the systematic components in `model.sCos`, as well as their ACF:
 
 ```{r resPlot1, fig.width=10, fig.height=5}
 par(mfrow=c(1,2))
 plot(x=temp_test$time, y=temp_test$Tres,
-     main="Temperature",xlab="day",ylab="T[캜]",axes=F, type="l")
+     main="Temperature",xlab="day",ylab="T[째C]",axes=F, type="l")
 axis(side=1, at=seq(1, 356, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 box()
 
 acf(temp_test$Tres, lag.max=365, main="Residual ACF")
+```
 
-#' As we can clearly see, the residues still have a hidden oscillatory component with a period of around 30 days.
-#' Hence we move ahead to test their randomness via the given tests.
-#' 
-#' #### 3.2.1 Durbin-Watson Test ####
-#' The null hypothesis of the D-W test states that the residues of a time series after a least squares regression are 
-#' uncorrelated, which is put against the alternative hypothesis: that the residuals follow a 1st order autoregressive (AR)
-#' process (see section 5.). 
+As we can clearly see, the residues still have a hidden oscillatory component with a period of around 30 days. Hence we move ahead to test their randomness via the given tests.
+ 
+#### 3.2.1 Durbin-Watson Test
 
-#' We can either use the inbuilt function in the "car" package:
+The null hypothesis of the D-W test states that the residues of a time series after a least squares regression are uncorrelated, which is put against the alternative hypothesis: that the residuals follow a 1st order autoregressive (AR) process (see section 5.). 
 
-#install.packages("car")
+We can either use the inbuilt function in the "car" package:
 
-
+```{r}
+suppressMessages(pkgTest("car"))
 car::durbinWatsonTest(temp_test$Tres)
+```
 
-#' or write our own function:
+or write our own function:
 
+```{r}
 # only unique values in the time series will be considered
 values1 <- as.numeric(temp_test$Tres)
 values2 <- unique(values1)
@@ -419,11 +465,12 @@ values2 <- unique(values1)
 nv <- length(values2)
 den <- sum(values2 ^ 2)
 ( DW <- (sum((values2[2:nv] - values2[1:(nv - 1)])^2))/den )
+```
 
-#' The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number
-#' `k` of the terms of linear regression (intercept included), in our case `k = 2` and `size = 265`, hence in a 5% confidence interval:
+The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number `k` of the terms of linear regression (intercept included), in our case `k = 2` and `size = 265`, hence in a 5% confidence interval:
 
-#' dL         dU
+```{r}
+# dL         dU
 # 1.78900  1.80444 (n = 260)
 # 1.79306  1.80792 (n = 270)
 
@@ -437,9 +484,11 @@ if(DW <= dL) {
 } else if (dU < DW && DW < 4 - dU) {
   message("Null Hypothesis: No Autocorrelation!")
 }
+```
 
-#' We can obtain p-values using the model matrix of the `Scos` model, simulating the stochastic process
-#' `Y ~ X - 1`, computing a DW-statistic for each simulation, and counting the number of `DW < simDW`:
+We can obtain p-values using the model matrix of the `Scos` model, simulating the stochastic process $Y \sim \rho X - \mu$, computing a DW-statistic for each simulation, and counting the number of `DW < simDW`:
+
+```{r}
 
 X <- model.matrix(model.sCos)[1:nt,]
 
@@ -453,59 +502,56 @@ simDW <- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])^2)
 ( p_val <- (sum(DW > simDW)) / reps ) # for negative correlation
 ( p_val <- (sum(DW < simDW)) / reps ) # for positive correlation
 ( p_val <- 2*min(p_val, 1 - p_val) ) # for two-sided correlation
+```
 
-#' The "rho" parameter appearing in the test is the, so called, autocorrelation coefficient for which -1 < rho < 1
-#' and the null hypothesis translates to verifying that rho = 0 for some confidence interval. 
-#' 
-#' We can model correlation for other lags as well. Aside from the residual vector as an argument, the `durbinWatsonTest`
-#' can process the entire regression model. It also has a `max.lag` argument which tells the function which lag to test for
-#' when using a model `Y ~ X - lag`. Parameter `alternative` also tells the function which type of correlation to test for:
+The `rho` parameter appearing in the test is the, so called, autocorrelation coefficient for which $-1 < \rho < 1$ and the null hypothesis translates to verifying that $\rho = 0$ for some confidence interval. 
+ 
+We can model correlation for other lags as well. Aside from the residual vector as an argument, the `durbinWatsonTest`
+can process the entire regression model. It also has a `max.lag` argument which tells the function which lag to test for when using a model $Y \sim X - L$ (where $L$ is the lag). Parameter `alternative` also tells the function which type of correlation to test for:
 
+```{r}
 car::durbinWatsonTest(model.sCos, max.lag=10, alternative="two-sided")
 car::durbinWatsonTest(model.sCos, max.lag=10, alternative="negative")
 car::durbinWatsonTest(model.sCos, max.lag=10, alternative="positive")
+```
 
-#' We see that DW tests have zero p-value up to lag 3. This means that we could be dealing with an AR process of order 3 or
-#' higher.
-#'
-#' #### 3.2.2 Zero ACF Test ####
-#' The test reduces to just finding all the ACF lags k with ACF(k) > 2/sqrt(n) where n is the length of the time series.
+We see that DW tests have zero p-value up to lag 3. This means that we could be dealing with an AR process of order 3 or higher.
+
+#### 3.2.2 Zero ACF Test
+The test reduces to just finding all the ACF lags k with $ACF(k) > 2/ \sqrt{n}$ where $n$ is the length of the time series.
 
 ```{r acfPlot1, fig.width=11, fig.height=5}
 par(mfrow=c(1,1))
 ACF <- acf(temp_test$Tres, lag.max=nt, plot=F)
 lags <- which(abs(acf(temp_test$Tres, lag.max=nt, main="Residual ACF")$acf[-1]) > 2/sqrt(nt))
 lagValues <- numeric()
-for(i in 1:length(lags))
-{
+for(i in 1:length(lags)) {
   lagValues[i] <- ACF$acf[lags[i] + 1]
   segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
 }
 lags
+```
 
-#' The result shows that the residual ACF exceeds the zero-value for the lags shown above.
-#'
-#' #### 3.2.3 Signed Rank Test ####
-#' This is a non-parametric test for the presence of a trend in the residual time series, based on the analysis 
-#' of differences of sets of three consecutive terms. The null hypothesis states that the resulting statistic is
-#' asymptotically normally distributed.
-#' using a custom approach:
+The result shows that the residual ACF exceeds the zero-value for the lags shown above.
 
+#### 3.2.3 Signed Rank Test
+
+This is a non-parametric test for the presence of a trend in the residual time series, based on the analysis of differences of sets of three consecutive terms. The null hypothesis states that the resulting statistic is asymptotically normally distributed. using a custom approach:
+
+```{r}
 # consecutive values with zero difference have to be omitted
 dist_bool <- c(T,as.logical(diff(values2)))
 Tt <- c()
-for (i in 1:length(dist_bool)) 
-{
+for (i in 1:length(dist_bool)) {
   if (dist_bool[i]) Tt <- c(Tt, values2[i])
 }
 
 #now the ranking of differences
 ranks <- c()
-for (i in 2:length(Tt)) 
-{
-  if (Tt[i-1] < Tt[i]) ranks[i - 1] <- 1
-  else 
-  {
+for (i in 2:length(Tt)) {
+  if (Tt[i-1] < Tt[i]) {
+    ranks[i - 1] <- 1
+  } else {
     ranks[i - 1] <- 0
   }
 }
@@ -524,35 +570,35 @@ if (test_stat < qnorm(alpha) || test_stat > qnorm(1 - alpha)) {
   message(paste("test_stat = ",test_stat," alpha = ", alpha,
                 " ::: Null Hypothesis! test_stat is normally distributed for n-->infty ! No trend detected."))
 }
+```
 
-#' And we can compare the results with an inbuilt function from the "randtests" package:
+And we can compare the results with an inbuilt function from the `randtests` package:
 
+```{r}
 require(randtests)
 randtests::difference.sign.test(temp_test$Tres)
+```
 
-#' So as it appears, for a 5% confidence interval the residues still contain a trend. Substituting 0.01 for alpha, however,
-#' gives an alternative hypothesis as a result. Thus the signed-rank test verifies its null hypothesis for 0.1 > alpha > 0.05.
-#' This is probably caused by cutting off a portion of the data at the end of an annual sample.
-#'
-#'
-#' #### 3.2.4 Spearman Rho Test ####
-#' Another non-parametric test for the presence of a trend using concordant/discordant pairs of values can be implemented as:
+So as it appears, for a 5% confidence interval the residues still contain a trend. Substituting 0.01 for `alpha`,however, gives an alternative hypothesis as a result. Thus the signed-rank test verifies its null hypothesis for $0.1 > \alpha > 0.05$. This is probably caused by cutting off a portion of the data at the end of an annual sample.
 
+#### 3.2.4 Spearman Rho Test
+
+Another non-parametric test for the presence of a trend using concordant/discordant pairs of values can be implemented as:
+
+```{r}
 #order the unique values in an increasing order
 
 temp_ordered <- values2[order(values2, decreasing=F)]
 q <- numeric()
 
-for (i in 1:length(values2)) 
-{
+for (i in 1:length(values2)) {
   q[i] <- match(c(values2[i]), temp_ordered) 
 }
 
 # and for the spearman rho coefficient
 nv <- length(values2)
 sum_term <- numeric()
-for (i in 1:length(values2)) 
-{
+for (i in 1:length(values2)) {
   sum_term[i] <- (i - q[i])^2 
 }
 
@@ -560,37 +606,36 @@ rho <- 1 - (6 / (nv * (nv * nv - 1))) * sum(sum_term)
 
 test_stat <- abs(rho) * sqrt(nv - 1)
 
-if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) 
-{
+if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) {
   message(paste("test_stat = ",test_stat," alpha = ", alpha,
                 " ::: Alternative Hypothesis! test_stat is not normally distributed for n-->infty ! Trend detected."))
 } else {
   message(paste("test_stat = ",test_stat," alpha = ", alpha,
                 " ::: Null Hypothesis! test_stat is normally distributed for n-->infty ! No trend detected."))
 }
+```
 
-#' And using the inbuilt `cor.test`:
+And using the inbuilt `cor.test`:
 
+```{r}
 # our rho:
 rho
 
 cor.test(temp_test$time, temp_test$Tres, method="spearman")
+```
 
-#' Clearly both the Signed-Rank, and Spearman Rho tests show that the residual time series is a realisation of independent 
-#' identically distributed random variables.
-#'
-#' #### 3.2.5 Turning Point Test ####
-#' This and the following test are both tests for the presence of (previously unfiltered) periodic components in the 
-#' residual time series. Similarily to the signed rank test, it examines sets of three consecutive terms, except this time
-#' looking for so called 'turning points', that is: triplets of values in which the middle value is locally extremal 
-#' (in that triplet). The presence and periodic regularity of turning points implies oscillatory behavior or the residues.
+Clearly both the Signed-Rank, and Spearman Rho tests show that the residual time series is a realisation of independent identically distributed random variables.
 
+#### 3.2.5 Turning Point Test
+
+This and the following test are both tests for the presence of (previously unfiltered) periodic components in the  residual time series. Similarily to the signed rank test, it examines sets of three consecutive terms, except this time looking for so called 'turning points', that is: triplets of values in which the middle value is locally extremal (in that triplet). The presence and periodic regularity of turning points implies oscillatory behavior or the residues.
+
+```{r}
 dist_bool <- c(T,as.logical(diff(values2)))
 
 #removing duplicate consecutive values
 Tt <- c()
-for (i in 1:length(dist_bool)) 
-{
+for (i in 1:length(dist_bool)) {
   if (dist_bool[i] == TRUE)  Tt <- c(Tt, values2[i])
 }
 
@@ -598,11 +643,9 @@ for (i in 1:length(dist_bool))
 # and 1 otherwise
 
 Mt <- c()
-for (i in 2:(length(Tt) - 1)) 
-{
+for (i in 2:(length(Tt) - 1)) {
   if ( ((Tt[i - 1] < Tt[i]) && (Tt[i] > Tt[i + 1])) || 
-       ((Tt[i - 1] > Tt[i]) && (Tt[i] < Tt[i + 1])) ) 
-  {
+       ((Tt[i - 1] > Tt[i]) && (Tt[i] < Tt[i + 1])) ) {
     Mt[i - 1] <- 1
   } else {
     Mt[i - 1] <- 0
@@ -626,21 +669,23 @@ if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) {
 ( p_value <- pnorm(test_stat) ) # positive serial correlation
 ( p_value <- 2*min(p_value, 1 - p_value)) # (two-sided) non-randomness
 ( p_value <- 1 - p_value ) # negative serial correlation
+```
 
-#' And via the inbuilt function from randtests:
+And via the inbuilt function from `randtests`:
 
+```{r}
 randtests::turning.point.test(temp_test$Tres, alternative="left.sided")
 randtests::turning.point.test(temp_test$Tres, alternative="two.sided")
 randtests::turning.point.test(temp_test$Tres, alternative="right.sided")
+```
 
-#' we, apparently, obtain the same result. 
-#' 
-#' #### 3.2.6 Median Test ####
-#' This is another non-parametric test for the presene of periodic components which essentially divides the sample values
-#' into distinct groups each of which corresponds to a group of values that are unilaterally above or below the sample median,
-#' meaning that if the `i`-th value and its predecessors lie above the median, and the `(i+1)`-th value lies below, for instance, 
-#' the `(i+1)`-th value is a member of a new group of values which lie below the sample median.
+we, apparently, obtain the same result. 
+ 
+#### 3.2.6 Median Test
 
+This is another non-parametric test for the presene of periodic components which essentially divides the sample values into distinct groups each of which corresponds to a group of values that are unilaterally above or below the sample median, meaning that if the $i$-th value and its predecessors lie above the median, and the $(i+1)$-th value lies below, for instance, the $(i+1)$-th value is a member of a new group of values which lie below the sample median.
+
+```{r medianPlot1, fig.width=11, fig.height=5}
 U <- temp_test$Tres
 temp_med <- median(U)
 U_ <- U - temp_med
@@ -653,13 +698,12 @@ c(below=sum(diff(M)<0), above=sum(diff(M)>0))
 m <- sum(M)
 P <- sum(diff(M)>0) + sum(diff(M)<0) + 1
 
-```{r medianPlot1, fig.width=11, fig.height=5}
 par(mfrow=c(1,1))
 plot(temp_test$Tres ~ temp_test$time, main="Median", ylab="res")
 abline(h=temp_med, col="green")
 for(i in 1:length(temp_test$Tres)) {
   if (U[i] != temp_med ) {
-    if (U[i] > temp_med){
+    if (U[i] > temp_med) {
       segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "red", lwd=1)
     } else {
       segments(temp_test$time[i], temp_med, temp_test$time[i], U[i], col= "blue", lwd=1)
@@ -692,36 +736,32 @@ randtests::runs.test(U)
 # signmedian.test(temp_test$Tres, alternative="two.sided")
 # signmedian.test(temp_test$Tres, alternative="greater")
 # signmedian.test(temp_test$Tres, alternative="less")
+```
 
-#' The median test implies randomness of the residual time series, yet its results are irrelevant for group count
-#' `m <= 100`. The result of the Durbin-Watson Test implies that the residual time series may be a trajectory of an AR(3) 
-#' (auto-regressive) process, and the residual ACF, of course, shows non-zero correlation for multiple lags. The signed-rank
-#' test "almost" implies that the residues do not have a trend (more specifically, for `alpha = 0.1`), and the following
-#' Spearman rho test does so as well. The presence of a trend may be caused by cutting off the tail of the annual series.
-#' The Turning Point test, with the Median test which  followed show that the time series also contains unfiltered periodic
-#' components, even though the Median test may be inconclusive since the group count m of groups of 
-#' values above median is less than 100.
-#' 
-#'  Therefore, from all the tests carried out in this section, we can conclude the following:
-#' 
-#' - The residual time series may be a trajectory of an AR(3) (auto-regressive) process
-#' - There is no trend present in the residual time series
-#' - And finally the unfiltered periodic components have to be accounted for via other methods
-#'
-#'
-#' ---------------------------------------------------------------------------------------------------------------
-#' 
-#' ## 4. Introducing ARMA Models and the Hannan-Rissanen Procedure ## 
-#'
-#' In general, a stationary (only lag-dependent) stochastic process is determined by p auto-regressive and q moving-average
-#' terms. The auto-regressive terms (as by the name) determine the value of the stochastic process at each time from its past
-#' values from up to p steps back, and the moving-average terms on the other hand imply dependence on a random process, such as
-#' the white noise, for instance, up to q time steps back. 
-#' 
+The median test implies randomness of the residual time series, yet its results are irrelevant for group count $m \leq 100$. The result of the Durbin-Watson Test implies that the residual time series may be a trajectory of an $AR(3)$
+(auto-regressive) process, and the residual ACF, of course, shows non-zero correlation for multiple lags. The signed-rank
+test "almost" implies that the residues do not have a trend (more specifically, for $\alpha = 0.1$), and the following
+Spearman rho test does so as well. The presence of a trend may be caused by cutting off the tail of the annual series.
+The Turning Point test, with the Median test which  followed show that the time series also contains unfiltered periodic
+components, even though the Median test may be inconclusive since the group count m of groups of 
+values above median is less than 100.
+ 
+Therefore, from all the tests carried out in this section, we can conclude the following:
+ 
+ - The residual time series may be a trajectory of an $AR(3)$ (auto-regressive) process
+ - There is no trend present in the residual time series
+ - And finally the unfiltered periodic components have to be accounted for via other methods
+
+
+ ---------------------------------------------------------------------------------------------------------------
+ 
+## 4. Introducing ARMA Models and the Hannan-Rissanen Procedure
+
+In general, a stationary (only lag-dependent) stochastic process is determined by p auto-regressive and q moving-average terms. The auto-regressive terms (as by the name) determine the value of the stochastic process at each time from its past values from up to p steps back, and the moving-average terms on the other hand imply dependence on a random process, such as the white noise, for instance, up to q time steps back. 
 
 ```{r newRegressionAcf, fig.width=12, fig.height=5}
 par(mfrow=c(1,3))
-plot(x=temp_test$time, y=temp_test$Tres, main="Residues",xlab="day",ylab="T[캜]",axes=F, type="l")
+plot(x=temp_test$time, y=temp_test$Tres, main="Residues",xlab="day",ylab="T[째C]",axes=F, type="l")
 axis(side=1, at=seq(1, 365, 7))
 axis(side=2, at=seq(round(min(temp_test$Tres), digits=1), round(max(temp_test$Tres), digits=1), by=2))
 box()
@@ -735,35 +775,30 @@ for(i in 1:length(lags)) {
   segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
 }
 acf(temp_test$Tres, lag.max=365, main="Residual PACF", type="partial")
+```
  
-#' Based on the result of the Durbin-Watson test, the additional oscillations
-#'  (which can still be seen in red non-zero values of the last residual ACF) should be accounted for by modelling the 
-#'  residues by a suitable AR(p) model (or ARMA(p,q) in general). The process for determining the proper orders p and q 
-#'  of suitable ARMA model candidates is called the Hannan-Rissanen Procedure and it consists of multiple steps.
-#'
-#' First, we need to figure out whether the residues need additional transformation, so that they could be properly modelled.
-#' For that we test whether:
-#' 
-#' (a) the time series has zero mean value
-#' 
-#' (b) the time series is stationary
-#' 
+Based on the result of the Durbin-Watson test, the additional oscillations (which can still be seen in red non-zero values of the last residual ACF) should be accounted for by modelling the residues by a suitable $AR(p)$ model (or $ARMA(p,q)$ in general). The process for determining the proper orders $p$ and $q$ of suitable ARMA model candidates is called the Hannan-Rissanen Procedure and it consists of multiple steps.
 
+First, we need to figure out whether the residues need additional transformation, so that they could be properly modelled. For that we test whether:
+ (a) the time series has zero mean value
+ (b) the time series is stationary
+
+```{r}
 mean(temp_test$Tres)
+```
 
-#' So the mean value approximation is close to zero, and the stationarity can be tested using the following test:
+So the mean value approximation is close to zero, and the stationarity can be tested using the following test:
 
-suppressMessages(require(tseries))
+```{r}
+suppressMessages(pkgTest("tseries"))
 adf.test(temp_test$Tres, alternative="explosive") # Augmented Dickey-Fuller
+```
 
-#' According to the Augmented Dickey-Fuller tests the residuals the stationarity hypothesis is rejected.
-#' However, since The tests have low statistical power in that they often cannot distinguish between true unit-root processes and 
-#' near unit-root processes. This is called the "near observation equivalence" problem.
-#'
-#' ### 4.1. The Hannan-Rissanen Procedure ###
-#' 
-#' First, we need to set the maximum values for lag parameters based on the significant lags in residual ACF and PACF.
-#' It will be easier to do so in a combined plot:
+According to the Augmented Dickey-Fuller tests the residuals the stationarity hypothesis is rejected. However, since The tests have low statistical power in that they often cannot distinguish between true unit-root processes and near unit-root processes. This is called the "near observation equivalence" problem.
+
+### 4.1. The Hannan-Rissanen Procedure
+ 
+First, we need to set the maximum values for lag parameters based on the significant lags in residual ACF and PACF. It will be easier to do so in a combined plot:
 
 ```{r plot03, echo=T, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
@@ -771,24 +806,22 @@ acf(temp_test$Tres, ylab="(P)ACF", lag.max=100, main="Comparison of Residual ACF
 tmp <- pacf(temp_test$Tres, plot=F, lag.max=100)
 points(tmp$lag+0.3, tmp$acf, col="red", type = "h")
 legend("topright", legend=c("ACF","PACF"), col = c("black","red"), lty=c(1,1))
+```
 
-#' The partial correlogram (red) shows that the most significant correlations are for lags `L = 1`, and `L = 40`.
-#' The second lag, however, does not exceed the zero region nearly as much as `L = 1`. It is then reasonable to assume
-#' that the most viable model will be of AR order `p = 1`. Hence:
+The partial correlogram (red) shows that the most significant correlations are for lags $L = 1$, and $L = 40$. The second lag, however, does not exceed the zero region nearly as much as $L = 1$. It is then reasonable to assume that the most viable model will be of AR order $p = 1$. Hence:
 
+```{r}
 kmax = 50; pmax = 30; qmax = 30;
+```
 
-#' The Yule-Walker method based on solving regression equations against an increasing basis of AR terms can be done
-#' through the inbuilt `ar()` function which automatically finds the model with the lowest AIC (Akaike's Information Criterion). 
-#' And by plotting the `$aic` parameter we obtain differences `AIC_min - AIC_k` for all models.
+The Yule-Walker method based on solving regression equations against an increasing basis of AR terms can be done through the inbuilt `ar()` function which automatically finds the model with the lowest AIC (Akaike's Information Criterion). And by plotting the `$aic` parameter we obtain differences $AIC_{min} - AIC_k$ for all models.
 
+```{r}
 model <- list()
 model$ar.yw <- ar(temp_test$Tres, order.max=kmax)
+```
 
-#' Plotting the differences dAIC we notice that the highest drop in `dAIC` comes after `L=1` and then a much smaller 
-#' drop follows after `L=15` and `L=40` after that. We can determine the maximum order `k` from the lags where this drop
-#' in `dAIC` occurs.
-#' An alternative to this approach is determining the AR order `p` from the residual variances:
+Plotting the differences we notice that the highest drop in $\Delta AIC$ comes after $L=1$ and then a much smaller drop follows after `L=15` and `L=40` after that. We can determine the maximum order $k$ from the lags where this drop in $\Delta AIC$ occurs. An alternative to this approach is determining the AR order $p$ from the residual variances:
 
 ```{r plot05, echo=T, fig.width=9.5, fig.height=4}
 par(mfrow=c(1,2))
@@ -796,11 +829,11 @@ plot(0:(length(model$ar.yw$aic)-1), xlab="p", model$ar.yw$aic, ylab="dAIC", main
 rbind(coef=model$ar.yw$ar, se=sqrt(diag(model$ar.yw$asy.var.coef))) 
 tmp <- sapply(1:kmax, function(x) ar(temp_test$Tres, aic=F, order.max=x)$var.pred)
 plot(tmp, xlab="p", ylab="sigma^2", main="Residual variances")
+```
 
-#' The plot suggests that the highest order of the AR process should be around
-#' `p = 20`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm.
-#' For the sake of saving computation time, however, we choose the following maximum order parameters:
-#'    
+The plot suggests that the highest order of the AR process should be around `p = 20`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm. For the sake of saving computation time, however, we choose the following maximum order parameters:
+
+```{r}    
 kmax = 20; pmax = 10; qmax = 10;
 
 #LongAR method implementation:
@@ -853,7 +886,7 @@ for (k in pmax:kmax) {
 
 models.arma <- list() 
 
-suppressMessages(require(dynlm))
+suppressMessages(pkgTest("dynlm"))
 models.arma[[paste(1,0,sep=",")]] <- LongAR(temp_test$Tres, k, 1, 0)
 models.arma[[paste(0,1,sep=",")]] <- LongAR(temp_test$Tres, k, 0, 1)
 
@@ -870,9 +903,11 @@ bic <- cbind(
 bic <- bic[order(bic[,"BIC"]),]
 
 head(bic, n=5)
+```
 
-#' Now we have 5 ARMA models with the lowest BIC with orders "p,q".
+Now we have 5 ARMA models with the lowest BIC with orders `"p,q"`.
 
+```{r}
 bestArma <- head(bic, n=5)
 orders <- rownames(bestArma)
 topModels <- list() # here I put the top models marked by their orders "p,q" as a key
@@ -885,15 +920,13 @@ for (j in 1:length(orders)) {
 ( bestArma <- cbind(bestArma, topModels) ) #checking if the list contains models
 #and then accessing them in the following way:
 bestArma[[1,3]] #first in the list and the third column for the model itself
+```
 
+### 4.2. Adjusting the Regression Coefficients Using the Maximum Likelihood Estimate
+ 
+The Maximum Likelihood Estimate (MLE) optimizes the, so called, likelihood-function with respect to the regression coefficients. One can find estimates using the Residual Square Sum (RSS). We will optimize the model parameters via an inbuilt function arima, specifying parameter `method = "ML"` and also using the former `dynlm`-type model and directly calculating the RSS.
 
-#' ### 4.2. Adjusting the Regression Coefficients Using the Maximum Likelihood Estimate ###
-#' 
-#' The Maximum Likelihood Estimate (MLE) optimizes the, so called, likelihood-function with respect to
-#' the regression coefficients. One can find estimates using the Residual Square Sum (RSS). 
-#' We will optimize the model parameters via an inbuilt function arima, specifying parameter `method = "ML"`
-#' and also using the former `dynlm`-type model and directly calculating the RSS.
-
+```{r}
 MaxLikelihoodOptim = function (tmpmodel, use_arima=TRUE) {
   params <- names(tmpmodel$coefficients)
   ( p <- sum(grepl("x",params)) )
@@ -973,8 +1006,9 @@ newBestArma <- OptimizeModels(bestArma, use_arima=F)
 # checking if the coefficients were changed
 bestArma[[5,3]]$coefficients
 newBestArma[[5,3]]$coefficients
+```
 
-#' ### 4.3. Plotting the Resulting Models With their Residuals  ###
+### 4.3. Plotting the Resulting Models With their Residuals
 
 ```{r plot11csaa, echo=T, include=T, fig.width=9, fig.height=6}
 par(mfrow=c(2,2))
@@ -984,8 +1018,9 @@ for (i in 1:5) {
   lines(newBestArma[[i,3]]$fitted.values, col="blue")
   plot(newBestArma[[i,3]]$residuals, main=paste("ARMA(",orders[[i]],") residuals"), ylab="res")
 }
+```
 
-#' ### 4.4. Plotting the Resulting Models In the Original Time Series ###
+### 4.4. Plotting the Resulting Models In the Original Time Series
 
 ```{r plot1212, echo=T, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
@@ -1001,33 +1036,25 @@ for(i in 1:5) {
   legend("topleft", legend=c("(1): Seasonal", paste("(2): (1) + ARMA(",orders[[i]],")")),
          col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
 }
+```
 
-#'
-#' The Hannan-Rissanen procedure with maximum orders: `kmax = 20`, `pmax = 10`, and `qmax = 10`, determined the optimal ARMA models
-#' to be: 
+The Hannan-Rissanen procedure with maximum orders: `kmax = 20`, `pmax = 10`, and `qmax = 10`, determined the optimal ARMA models to be: 
+
+```{r, echo=F}
 row.names(newBestArma)
-#' Combining the systematic components, i.e.: the seasonal and cyclical 
-#' components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part
-#' of the original time series. The evaluation part will be used in the following section where we will test the given models
-#' and carry out predictions.
-#' 
-#' ## 5. ARMA Model Diagnostics and Predictions ##
-#' 
-#' Prior to carrying out (single-step and multiple step) predictions, we need to test the accuracy of the given models. For that we use the 
-#' following series of diagnostic tests:
-#' 
-#' - Zero Autocorrelation
-#' 
-#' - Normality of Residues
-#' 
-#' - Conditional Heteroskedasticity
-#' 
-#' ### 5.1. Zero Autocorrelation ###
-#' 
-#' The Autocorrelation function (ACF) shows a reasonably clear image of the dependency of individual random variables with
-#' respect to time lag. This means that if the ACF has non-zero values for some lags greater than zero, then it is likely
-#' that the residues after removing the ARMA regression's fitted values still contain some systematic or ARMA component.
-#' To find out we test for a null hypothesis: `ACF(k) = 0` for all `k > 0`, against an alternative `ACF(k) != 0` for some `k > 0`.
+```
+Combining the systematic components, i.e.: the seasonal and cyclical components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part of the original time series. The evaluation part will be used in the following section where we will test the given models and carry out predictions.
+ 
+## 5. ARMA Model Diagnostics and Predictions
+ 
+Prior to carrying out (single-step and multiple step) predictions, we need to test the accuracy of the given models. For that we use the following series of diagnostic tests:
+ - Zero Autocorrelation
+ - Normality of Residues
+ - Conditional Heteroskedasticity
+ 
+### 5.1. Zero Autocorrelation
+ 
+The Autocorrelation function (ACF) shows a reasonably clear image of the dependency of individual random variables with respect to time lag. This means that if the ACF has non-zero values for some lags greater than zero, then it is likely that the residues after removing the ARMA regression's fitted values still contain some systematic or ARMA component. To find out we test for a null hypothesis: $ACF(k) = 0$ for all $k > 0$, against an alternative $ACF(k) \neq 0$ for some $k > 0$.
 
 ```{r plot1zaa, echo=T, fig.width=9, fig.height=4}
 ZeroACF = function (x, zeroValue) {
@@ -1061,28 +1088,20 @@ for (i in 1:5) {
   
   Nonzeros[[i]] <- NonZeroValues(ACFs[[i]], zero)
 }
+```
 
-#' Using the zero-value approximation: `2/sqrt(nt)`, where `nt` is the length of the residual time series,
-#' we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant
-#' residual lags such as 14, and 23 in the model.sCos in section 3). The significance of the 23-day lag, however,
-#' is not nearly as high as it would have otherwise been (with additional significant lags) if additional lags had not been 
-#' introduced prior to carrying out the Hannan-Rissanen procedure. Thus we can assume that all models, having
-#' no other significant lags than the 23-day lag, describe the behavior of the test part of the residual time series 
-#' reasonably well.
-#' In the following list:
+Using the zero-value approximation: $2/\sqrt{n_t}$, where $n_t$ (`nt`) is the length of the residual time series, we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant residual lags such as 14, and 23 in the `model.sCos` in section 3). The significance of the 23-day lag, however, is not nearly as high as it would have otherwise been (with additional significant lags) if additional lags had not been introduced prior to carrying out the Hannan-Rissanen procedure. Thus we can assume that all models, having no other significant lags than the 23-day lag, describe the behavior of the test part of the residual time series reasonably well. In the following list:
 
+```{r}
 Nonzeros
+```
 
-#' we see the exact lags for which the ACF exceeds the zero-value.
-#' 
-#' ### 5.2. Normality of Residues ###
-#' 
-#' If a given ARMA model describes the time series well enough, the residues should behave as if they were generated
-#' by a stochastic process with values at individual times `t` being the realizations of independent identically distributed
-#' random variables. For sufficiently large number of time steps, the residues are assumed to be the results of a normally 
-#' distributed random variable. 
-#' 
-#' To test that, we use the, so called, Jarque-Bera test:
+we see the exact lags for which the ACF exceeds the zero-value.
+ 
+### 5.2. Normality of Residues
+ 
+If a given ARMA model describes the time series well enough, the residues should behave as if they were generated by a stochastic process with values at individual times $t$ being the realizations of independent identically distributed random variables. For sufficiently large number of time steps, the residues are assumed to be the results of a normally distributed random variable. 
+ To test that, we use the, so called, Jarque-Bera test:
 
 ```{r JBTest, echo=T}
 JBToutput <- list()
@@ -1096,22 +1115,21 @@ for (i in 1:5) {
   names(JBToutput1) <- c("p,q","statistic", "DOF", "p.value")
   data.frame(head(JBToutput1))
   if (pValue > 0.05) {
-    message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Normality hypothesis rejected"))
-  } else { message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Normality hypothesis accepted")) }
+    message(paste("ARMA(",orders[[i]],") ::: p-value = ", round(pValue, 4),", Normality hypothesis rejected"))
+  } else { message(paste("ARMA(",orders[[i]],") ::: p-value = ", round(pValue, 4),", Normality hypothesis accepted")) }
 }
+```
 
+As it appears, the normality of the residues of all top 5 ARMA models is accepted. 
 
-#' As it appears, the normality of the residues of all top 5 ARMA models is accepted. 
-#'
-#' ### 5.3. Conditional Heteroskedasticity ###
-#' 
-#' The term "heteroskedasticity" of a time series describes the tendency of its variance to change with time.
-#' A time series whose variance (up to a given time) remains the same are called "homoskedastic".
-#' The following Breusch-Pagan test assesses the homoskedasticity of a given model:
+### 5.3. Conditional Heteroskedasticity
+ 
+The term "heteroskedasticity" of a time series describes the tendency of its variance to change with time. A time series whose variance (up to a given time) remains the same are called "homoskedastic". The following Breusch-Pagan test assesses the homoskedasticity of a given model:
 
 ```{r Skedast, echo=T}
 alpha = 0.05
 SkedtestResults <- list()
+suppressMessages(pkgTest("lmtest"))
 for (i in 1:5) {
   (SkedtestResults[[i]] <- lmtest::bptest(newBestArma[[i,3]]) )
   
@@ -1123,27 +1141,23 @@ for (i in 1:5) {
     message(paste("ARMA(",orders[[i]],") ::: p-value = ", pValue,", Null hypothesis accepted: model is homoskedastic"))
   }
 } 
+```
 
-#' Thus on the 5% significance level we accept the null hypothesis for all models,
-#' i.e.: all models are heteroskedastic.
-#'
-#'-----------------------------------------------------------------------------------------------------------------
-#'
-#' ### 5.4. Forecasting and Single-Step Predictions ###
-#' 
-#' Now we make use of the evaluation part of the time series which we have separated from the original series earlier
-#' in section 4. Since the `dynlm` model we used earlier does not support `predict()` function from the `forecast` library
-#' we use equivalent `ARIMA(p,0,q)` models instead of `ARMA(p,q)`, which have an inbuilt function `arima()`, the result of which
-#' is an object that can be processed by the `predict()` call.
+Thus on the 5% significance level we accept the null hypothesis for all models, i.e.: all models are heteroskedastic.
 
-( neval <- length(temp_eval$Tres) )
+ -----------------------------------------------------------------------------------------------------------------
+
+### 5.4. Forecasting and Single-Step Predictions
+ 
+Now we make use of the evaluation part of the time series which we have separated from the original series earlier in section 4. Since the `dynlm` model we used earlier does not support `predict()` function from the `forecast` library we use equivalent $ARIMA(p,0,q)$ models instead of $ARMA(p,q)$, which are returned by an inbuilt function `arima()`, the result of which is an object that can be processed by the `predict()` call.
 
 ```{r predictplot1, echo=TRUE, fig.width=9, fig.height=4}
+( neval <- length(temp_eval$Tres) )
+
 par(mfrow=c(1,1))
-library(forecast)
+suppressMessages(pkgTest("forecast"))
 eval.predictions <- list()
 merrors <- list()
-
 
 for (i in 1:5) {
   #extract model orders from the top models from Hannan-Rissanen:
@@ -1158,24 +1172,24 @@ for (i in 1:5) {
 
   plot(x=temp_eval$time, y=temp_eval$T, 
        main=paste("Predictions ARMA(",p,",",q,"), RMSE = ", round(sqrt(merrors[[i]]), 4)),
-       xlab="day", ylab="[캜]", type="l", lwd=1.5)
+       xlab="day", ylab="[째C]", type="l", lwd=1.5)
   lines(x=temp_eval$time, y=(eval.predictions[[i]] + temp_eval$sCos), col="blue", lwd=2)
   legend("bottomleft", legend=c("prediction", "actual values"),
          col=c("blue","black"), lty=1,lwd=2 , cex=0.75)
 }
+```
 
-#' We have also computed Root Mean Square Errors for each model, with the smallest one being:
+We have also computed Root Mean Square Errors for each model, with the smallest one being:
 
+```{r}
 minE <- which.min(merrors)
+```
 
-#' ### 5.5. Comparison of Predictive Abilities Using the Diebold-Mariano Test ###
-#' 
-#' Taking two different ARMA models, the null hypothesis of the test states that both models have equal predictive
-#' abilities. We will be comparing 5 different models against each other, which will essentially amount to testing
-#' the predictive abilities of 10 distinct pairs of models. Practically, the test results can be expressed in a 5x5
-#' "DieboldMarianoMatrix" with values 0 (if model i has the same predictive abilities as model j), 1 (if model i has
-#' better predictive abilities than model j), and -1 (the other way around):
+### 5.5. Comparison of Predictive Abilities Using the Diebold-Mariano Test
+ 
+Taking two different ARMA models, the null hypothesis of the test states that both models have equal predictive abilities. We will be comparing 5 different models against each other, which will essentially amount to testing the predictive abilities of 10 distinct pairs of models. Practically, the test results can be expressed in a $5 \times 5$ "DieboldMarianoMatrix" with values $0$ (if model $i$ has the same predictive abilities as model $j$), $1$ (if model `i` has better predictive abilities than model $j$), and $-1$ (the other way around):
 
+```{r}
 DieboldMarianoMatrix <- matrix(0, ncol=5, nrow=5)
 pvalueMatrix <- matrix(1, ncol=5, nrow=5)
 for(i in 1:length(eval.predictions)) {
@@ -1189,12 +1203,10 @@ for(i in 1:length(eval.predictions)) {
 DieboldMarianoMatrix
 
 pvalueMatrix
+```
 
-#' As the results of the Diebold-Mariano test suggest, models 3 and 5 have better predictive abilities than all the remaining models
-#' on a 5% significance level.
-#' 
-#' A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE).
-#' Here we can see how the predictions match the observed values from the evaluation part of the time series:
+As the results of the Diebold-Mariano test suggest, models 3 and 5 have better predictive abilities than all the remaining models on a 5% significance level.
+A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE). Here we can see how the predictions match the observed values from the evaluation part of the time series:
 
 ```{r predictPlot2, echo=T, fig.width=9, fig.height=6}
 par(mfrow=c(1,1));
@@ -1212,15 +1224,11 @@ lines(x=temp_test$time[(k + 1):nt], y=test_model, col="red",lwd=2)
 lines(x=temp$time[nt:(nt + 1)], y=c(test_model[nt - 1], fullpredict[1]), col="red", lwd=2) #line connecting first and second value set
 legend("topleft", legend=c(paste("Model ARMA(",orders[[minE]],")"), paste("Model ARMA(",orders[[minE]],") prediction")),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.75)
+```
 
-#'
-#' The model with the smallest RMSE is ARMA(1,0). Except for the outlying values, the predictive capabilities of the model
-#' can also be verified visually from the plot above.
-#' Now recall that we have fully neglected the effect of cyclical components. The residues after removing cyclical components as well
-#' have been stored in `temp_test$Tres2`. We can run the whole H-R procedure again for these residues to see if an ARMA type model can
-#' be found which would have better predictive abilities:
-#' 
-
+The model with the smallest $RMSE$ is $ARMA(1,0)$. Except for the outlying values, the predictive capabilities of the model can also be verified visually from the plot above. Now recall that we have fully neglected the effect of cyclical components. The residues after removing cyclical components as well have been stored in `temp_test$Tres2`. We can run the whole H-R procedure again for these residues to see if an ARMA type model can be found which would have better predictive abilities:
+ 
+```{r}
 AICs <- ar(temp_test$Tres2, order.max=kmax)$aic
 
 minAIC <- min(AICs[pmax:kmax])
@@ -1253,10 +1261,11 @@ bic2 <- bic2[order(bic2[,"BIC"]),]
 
 head(bic2, n=5)
 head(bic, n=5)
+```
 
-#' Using `temp_test$Tres2` does not change the ARMA model selection at all. Hence we will only need to compare the resulting 
-#' error when cyclical components are included (in model `model.SCcos`).
+Using `temp_test$Tres2` does not change the ARMA model selection at all. Hence we will only need to compare the resulting error when cyclical components are included (in model `model.SCcos`).
 
+```{r}
 bestArma2 <- head(bic2, n=5)
 orders2 <- rownames(bestArma2)
 topModels2 <- list()
@@ -1277,14 +1286,14 @@ ACFs <- ZeroACF(ACFs, zero)
 lines(ACFs, col="red", lwd=2)
 
 ( Nonzero <- NonZeroValues(ACFs, zero) )
+```
 
-#' the significant lags in the acf of the first ARMA model's residuals are still present.
-#' 
+the significant lags in the acf of the first ARMA model's residuals are still present.
 
+```{r predictPlot3, echo=T, fig.width=9, fig.height=4}
 eval.predictions2 <- list()
 merrors2 <- list()
 
-```{r predictPlot3, echo=T, fig.width=9, fig.height=4}
 for (i in 1:5) {
   o <- unlist(strsplit(orders[[i]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
   model_estim2 <- arima(temp_test$Tres2, order=c(p,0,q))
@@ -1295,7 +1304,7 @@ for (i in 1:5) {
   
   plot(x=temp_eval$time, y=temp_eval$T, 
        main=paste("Predictions ARMA(",p,",",q,"), RMSE = (", round(sqrt(merrors[[i]]), 4), ",",round(sqrt(merrors2[[i]]), 4)," )"),
-       xlab="day", ylab="[캜]", type="l", lwd=1.5)
+       xlab="day", ylab="[째C]", type="l", lwd=1.5)
   lines(x=temp_eval$time, y=(eval.predictions2[[i]] + temp_eval$SCcos), col="red", lwd=2)
   lines(x=temp_eval$time, y=(eval.predictions[[i]] + temp_eval$sCos), col="blue", lwd=2)
   legend("bottomleft", legend=c("prediction1", "prediction2", "actual values"),
@@ -1311,10 +1320,11 @@ row.names(errorCmp) <- orders
 
 errorCmp
 
-#' The results show that even though adding cyclical components decreases the `RMSE` of the model predictions, it does not
-#' change their orders. To see if the new models have significantly better predictive abilities, we can perform a Diebold-Mariano
-#' test on a twice as large set of models:
+```
 
+The results show that even though adding cyclical components decreases the `RMSE` of the model predictions, it does not change their orders. To see if the new models have significantly better predictive abilities, we can perform a Diebold-Mariano test on a twice as large set of models:
+
+```{r}
 DieboldMarianoMatrix <- matrix(0, ncol=10, nrow=10)
 pvalueMatrix <- matrix(1, ncol=10, nrow=10)
 for(i in 1:10) {
@@ -1336,21 +1346,32 @@ for(i in 1:10) {
 DieboldMarianoMatrix
 
 pvalueMatrix
+```
 
-#' Which only shows that there is no significant difference between the models since the `DieboldMarianoMatrix` values
-#' for rows 6 to 10 and columns 1 to 5 suggest none of the models from the second set are significantly better than the ones in the first set.
-#' Thus we will consider only ARMA + seasonal systematic component models.
-#' 
-#' ### 5.6 Multiple-Step Predictions ###
-#' 
-
-hmax = 5; # prediction horizon
+Which only shows that there is no significant difference between the models since the `DieboldMarianoMatrix` values for rows 6 to 10 and columns 1 to 5 suggest none of the models from the second set are significantly better than the ones in the first set. Thus we will consider only ARMA + seasonal systematic component models.
+ 
+### 5.6 Multiple-Step Predictions
 
 ```{r multipredictPlot, echo=T, fig.width=10, fig.height=5}
+hmax = 5; # prediction horizon
+ne <- length(temp_eval$time)
+
+# WIP
+y = (nt - hmax):(nt + ne)
+lags = embed(y, hmax + 1)
+colnames(lags) = sapply(0:hmax, function(h) paste("Xt", ifelse(h == 0, "", paste("-", h, sep="")), sep=""))
+lags
+
+#h = 2
+lags = cbind(lags[-1, 1], lags[-nrow(lags), -1])
+colnames(lags) = c("Xt","Xt-2","Xt-3","Xt-4", "Xt-5", "Xt-6")
+lags
+# WIP
+
 par(mfrow=c(1,1));
 
 for (i in 1:5) {
-  # i <- 1
+  #i <- 1
   x_predictions <- list()
   t_predictions <- list()
   
@@ -1400,7 +1421,6 @@ for (i in 1:5) {
     }
     
     m <- length(x_preds)
-    ne <- length(temp_eval$time)
     
     x_preds <- as.matrix(na.omit(data.frame(x_preds[1:ne] + temp_eval$sCos ) ) )
     np <- length(x_preds)
@@ -1414,7 +1434,7 @@ for (i in 1:5) {
   }
   
   plot(x=temp_eval$time, y=(temp_eval$Tres + temp_eval$sCos), type="b", lwd=1.5, main=paste("ARMA(",p,",",q,") Multiple-Step predictions"),
-       xlab="day", ylab="res(T)[캜]")
+       xlab="day", ylab="res(T)[째C]")
   for (h in 1:hmax) {
     lines(x=t_predictions[[h]], y=x_predictions[[h]], col=rgb(0, (1 - h / hmax), h / hmax), lwd=2)
   }
@@ -1422,31 +1442,23 @@ for (i in 1:5) {
          col=sapply(1:hmax, function(h) rgb(0, (1 - h / hmax), h / hmax)), lty=1,lwd=2 , cex=0.75)
   
 }
+```
 
+ --------------------------------------------------------------------------------------------------------------
+ 
+## 6. Non-Stationary Models
+ 
+ARMA type models can be used when we safely assume stationarity of the time series. Namely, when the series has a constant variance its mean values and covariances only depend on the lag, not on time. Although ARMA models seem to sufficiently describe the given time series, we may want to try out the so called Integrated processes, and conditionally heteroskedastic processes.
+ 
+### 6.1. Diagnostic Tests
+ 
+First we will test whether the original time series after extracting the seasonal component has the properties of a non-stationary process. The most common approach involves testing for unit-roots of the process' characteristic polynomial. We begin by testing the residuals after filtering seasonal components via the Dickey-Fuller (DF) test.
+ 
+#### 6.1.1 Dickey-Fuller Test (DF)
+ 
+The null hypothesis of the DF test states: $x_t = x_{t-1} + e_t$, that is, the time series is a realization of a random walk process. It is carried out by setting $\Delta x_t = x_t - x_{t-1} = \rho \ x_{t-1} + e_t$ where $e_t$ is an i.i.d process. It suffices to show that the $\rho$ parameter of such regression equals zero. In general the regression may assume $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ with additional parameters $\mu$ (mean value) and $\delta$ (deterministic drift).
 
-
-#'
-#' --------------------------------------------------------------------------------------------------------------
-#' 
-#' ## 6. Non-Stationary Models ##
-#' 
-#' ARMA type models can be used when we safely assume stationarity of the time series. Namely, when the series has a constant variance 
-#' its mean values and covariances only depend on the lag, not on time. Although ARMA models seem to sufficiently describe the given 
-#' time series, we may want to try out the so called Integrated processes, and conditionally heteroskedastic processes.
-#' 
-#' ### 6.1. Diagnostic Tests ###
-#' 
-#' First we will test whether the original time series after extracting the seasonal component has the properties of a non-stationary process.
-#' The most common approach involves testing for unit-roots of the process' characteristic polynomial. We begin by testing the residuals 
-#' after filtering seasonal components via the Dickey-Fuller (DF) test.
-#' 
-#' #### 6.1.1 Dickey-Fuller Test (DF) ####
-#' 
-#' The null hypothesis of the DF test states: `x_t = x_{t-1} + e_t`, that is, the time series is a realization of a random walk process.
-#' It is carried out by setting `dx_t = x_t - x_{t-1} = rho * x_{t-1} + e_t` where `e_t` is an i.i.d process. It suffices to show that the `rho`
-#' parameter of such regression equals zero. In general the regression may assume `dx_t = mu + delta * t + rho * x_{t-1} + e_t` with additional
-#' parameters `mu` (mean value) and `delta` (deterministic drift).
-
+```{r}
 x <- temp_test$Tres
 x <- as.numeric(x)
 dx <- diff(x) # first differences
@@ -1457,16 +1469,20 @@ tt <- 1:m
 reg <- lm(dx ~ xt1 + 1 + tt)
 
 ( reg.sum <- summary(reg) )
+```
 
-#' And after the regression of the difference time series we proceed to compute the `DF`-statistic from the `rho` parameter
+And after the regression of the difference time series we proceed to compute the $DF$-statistic from the `rho` parameter
 
+```{r}
 rho <- reg.sum$coefficients[2,1]
 sigma_rho <- reg.sum$coefficients[2,2]
 ( DFstat <- rho / sigma_rho )
+```
 
-#' The value has to be compared with the critical values for the `DF`-statistic, whose distribution is estimated via simulations
-#' for particular sample sizes:
+The value has to be compared with the critical values for the `DF`-statistic, whose distribution is estimated via simulations
+ for particular sample sizes:
 
+```{r}
 critVals <- -c(3.60, 3.50, 3.45, 3.43, 3.42, 3.41) # for alpha = 0.05
 sampleSizes <- c(25, 50, 100, 250, 500, 100000) # sample size
 
@@ -1479,51 +1495,50 @@ if (DFstat < critVal) {
   message(paste(" DF = ", round(DFstat, digits=4), " > ", critVal, ", rho = ", round(rho, digits=4),
                 " ::: Null Hypothesis rejected. Stochastic trend insignificant."))
 }
+```
 
-#' The presence of a stochastic trend for process `dx_t = mu + delta * t + rho * x_{t-1} + e_t` is accepted on a 5% significance
-#' level. This means that the time series may be modelled as an integrated process.
-#' We can compare the results with the inbuilt `adf.test` function from `tseries` package:
+The presence of a stochastic trend for process $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ is accepted on a 5% significance level. This means that the time series may be modelled as an integrated process. We can compare the results with the inbuilt `adf.test` function from `tseries` package:
 
+```{r}
 require(tseries)
 adf.test(x, k = 0) # k = 0 corresponds to lag = 1
+```
 
-#' #### 6.1.2 Augmented Dickey-Fuller Test (ADF) ####
-#' 
-#' The same procedure can be generalized for lags `k > 0` as well. For that we can just use the method from `tseries` package:
+#### 6.1.2 Augmented Dickey-Fuller Test (ADF)
+ 
+The same procedure can be generalized for lags $k > 0$ as well. For that we can just use the method from `tseries` package:
 
+```{r}
 DFi <- list()
 for (i in 1:5) DFi[[i]] <- suppressWarnings(adf.test(temp_test$Tres, k = i)$statistic)
 DFi <- data.frame(matrix(unlist(DFi), nrow=length(DFi), byrow=T))
 names(DFi) <- c("DF")
 DFi
+```
 
-#' The ADF method sets a default lag value to 
+The ADF method sets a default lag value to 
 
+```{r}
 ( k <- trunc((length(x)-1)^(1/3))  )
 
 adf.test(x)
+```
 
-#' #### 6.1.3 Phillips-Perron Test ####
-#' 
-#' Similarily to the DF test, the PP-test is, again, a unit-root test which relies on regressing `dX ~ 1 + t + X_{t - 1}`. 
-#' While the ADF test adresses the issue of the time series being potentially generated by a process of higher orders by using 
-#' lags `k = 1, 2, ...` and expanding the regression equation, PP-test makes a non-parametric correction to the t-statistic.
-#' 
-
+#### 6.1.3 Phillips-Perron Test
+ 
+Similarily to the DF test, the PP-test is, again, a unit-root test which relies on regressing $\Delta X \sim \mu + \delta \ t + \rho X_{t - 1}$. While the ADF test adresses the issue of the time series being potentially generated by a process of higher orders by using lags $k = 1, 2, ...$ and expanding the regression equation, PP-test makes a non-parametric correction to the t-statistic.
+ 
+```{r}
 pp.test(x)
+```
 
-#' This makes the PP-test robust with respect to unspecified autocorrelation and heteroskedasticity.
-#' 
-#' #### 6.1.4 KPSS Test ####
-#' 
-#' Published by Kwiatkovski, Philips, Schmidt, and Shin (1992), another test approaches the stationarity-vs-non-stationarity issue
-#' from an opposite point of view. Using KPSS we can test for stationarity hypothesis (about a deterministic trend). Contrary to the 
-#' previously used tests, the presence of a unit root is the alternative. It can be used in cases when unit roots hypothesis cannot be
-#' rejected and the time series coult be non-stationary (or we have a sample of insufficient length).
-#' 
-#' The test relies on testing for zero variance of an i.i.d process present in the stochastic trend part in `x_t ~ ST_t + eps_t`, or
-#' alternatively with deterministic trend: `x_t ~ ST_t + delta * t + eps_t`. 
+This makes the PP-test robust with respect to unspecified autocorrelation and heteroskedasticity.
+ 
+#### 6.1.4 KPSS Test
+ 
+Published by Kwiatkovski, Philips, Schmidt, and Shin (1992), another test approaches the stationarity-vs-non-stationarity issue from an opposite point of view. Using KPSS we can test for stationarity hypothesis (about a deterministic trend). Contrary to the previously used tests, the presence of a unit root is the alternative. It can be used in cases when unit roots hypothesis cannot be rejected and the time series coult be non-stationary (or we have a sample of insufficient length). The test relies on testing for zero variance of an i.i.d process present in the stochastic trend part in $x_t \sim ST_t + \epsilon_t$, or alternatively with deterministic trend: $x_t \sim ST_t + \delta \ t + \epsilon_t$. 
 
+```{r}
 x <- as.vector(x, mode="double")
 n <- length(x)
 ntrend.reg <- lm(x ~ 1)
@@ -1541,19 +1556,24 @@ s2 <- .C("tseries_pp_sum", as.vector(e, mode="double"), as.integer(n), as.intege
 kpssStat <- eta/s2
 pval <- approx(table, tablep, kpssStat, rule=2)$y
 c(KPSS=kpssStat, pval=pval)
+```
 
-#' As it appears, the stationarity null hypothesis is rejected. With pvalue > 0.1. The same result can be obtained using
-#' the `kpss.test` function from the `tseries` package:
+As it appears, the stationarity null hypothesis is rejected. With `pvalue > 0.1`. The same result can be obtained using the `kpss.test` function from the `tseries` package:
 
+```{r}
 ( testNDrift <- kpss.test(x, null="Level") )
 ( testDrift <- kpss.test(x, null="Trend") )
+```
 
-#' where the second result corresponds to testing the second type of regression `x ~ t` with trend, which shows that we can
-#' accept the stationarity hypothesis with p-value 
+where the second result corresponds to testing the second type of regression $x \sim \delta \ t$ with trend, which shows that we can accept the stationarity hypothesis with p-value 
+
+```{r}
 testDrift$p.value
+```
 
-#' By regressing the given trend
+By regressing the given trend
 
+```{r}
 t <- 1:n
 trend.reg <- lm(x ~ t)
 summary(trend.reg)
@@ -1566,21 +1586,22 @@ s2 <- .C("tseries_pp_sum", as.vector(e, mode="double"), as.integer(n), as.intege
 kpssStat <- eta/s2
 pval <- approx(table2, tablep, kpssStat, rule=2)$y
 c(KPSS=kpssStat, pval=pval)
+```
 
-#' This is possibly due to the cut-off of the test part of the time series, which does not entail its entire 365-day period.
-#' The test can also be carried out for larger values of truncation lag parameter:
+This is possibly due to the cut-off of the test part of the time series, which does not entail its entire 365-day period. The test can also be carried out for larger values of truncation lag parameter:
 
+```{r}
 kpss.test(x, null="Level", lshort = F)
 kpss.test(x, null="Trend", lshort = F)
+```
 
-#'
-#' ### 6.2 Identifying Models of Integrated Processes ###
-#' 
-#' We analyze the time series visually:
+### 6.2 Identifying Models of Integrated Processes
+ 
+We analyze the time series visually:
 
 ```{r integRegressionAcf0, fig.width=12, fig.height=5, echo=FALSE}
 par(mfrow=c(1,3))
-plot(x=temp_test$time, y=x, main="x_t",xlab="day",ylab="T[캜]",axes=F, type="l")
+plot(x=temp_test$time, y=x, main="x_t",xlab="day",ylab="T[째C]",axes=F, type="l")
 axis(side=1, at=seq(1, 365, 7))
 axis(side=2, at=seq(round(min(x), digits=1), round(max(x), digits=1), by=2))
 box()
@@ -1593,39 +1614,35 @@ for(i in 1:length(lags)) {
   segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
 }
 acf(x, lag.max=50, main="PACF", type="partial")
+```
 
+The ACF and PACF plots above might suggest which correlation lags remain in the residues after extracting the seasonal component. More precisely:
 
-#' The ACF and PACF plots above might suggest which correlation lags remain in the residues after extracting the seasonal component.
-#' More precisely:
-
+```{r}
 data.frame(cbind(lag=lags, ACF=lagValues))
+```
 
-#' The correlation within the data is the highest for `L=1`, `L=2`, `L=3`, `L=7` and then for `L=48` and `L=49`. These values might turn out to be useful
-#' in further analysis when estimating correct periods for SARIMA type models, for example. 
-#' Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data
-#' denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as
-#' integrated processes.
-#' 
-#' First, we need to estimate the difference order `d`. For most processes `d = 1`. The remaining parameters can be automatically
-#' estimated via a search function, for example:
+The correlation within the data is the highest for $L=1$, $L=2$, $L=3$, $L=7$ and then for $L=48$ and $L=49$. These values might turn out to be useful in further analysis when estimating correct periods for SARIMA type models, for example. Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as integrated processes.
+ First, we need to estimate the difference order $d$. For most processes $d = 1$. The remaining parameters can be automatically estimated via a search function, for example:
 
+```{r}
 require(forecast)
 auto.arima(x, d=1, ic = "bic")
+```
 
-#' However if we do not specify a difference order, the `auto.arima` method 
+However if we do not specify a difference order, the `auto.arima` method 
 
+```{r}
 auto.arima(x, ic = "bic")
+```
 
-#' returns the best estimate equivalent to an `ARMA(1, 0)` model, which is what the Hannan-Rissanen procedure in section 4 returned. 
-#' This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility
-#' that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different
-#' integrated processes of type ARIMA, SARIMA or alternatively ARFIMA and GARCH models respectively.
-#' 
-#' #### 6.2.1 ARIMA ####
-#' 
-#' Since we have already searched for ARIMA type models in the search space of the time series, we only need to consider processes
-#' of integration order `d > 0`. For comparison we consiter models with `d = 0` which we analyzed in sections 4 and 5.
+returns the best estimate equivalent to an $ARMA(1, 0)$ model, which is what the Hannan-Rissanen procedure in section 4 returned. This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different integrated processes of type ARIMA, SARIMA or alternatively ARFIMA and GARCH models respectively.
+ 
+#### 6.2.1 ARIMA
+ 
+Since we have already searched for ARIMA type models in the search space of the time series, we only need to consider processes of integration order $d > 0$. For comparison we consiter models with $d = 0$ which we analyzed in sections 4 and 5.
 
+```{r}
 pmax = 5; qmax = 5; dmax = 2;
 models.arima <- list();
 for (p in 0:pmax) {
@@ -1643,46 +1660,48 @@ for (p in 0:pmax) {
 models.arima <- data.frame(matrix(unlist(models.arima), nrow=length(models.arima), byrow=T))
 names(models.arima) <- c("p", "d", "q", "RSS", "AIC", "BIC")
 head(models.arima)
+```
 
-#' And like we did in section 4, after getting a large set of models of varying quality, we sort the resulting list 
-#' according to their BIC's:
+And like we did in section 4, after getting a large set of models of varying quality, we sort the resulting list according to their $BIC$'s:
 
+```{r}
 bic <- models.arima[6]
 bestArima <- models.arima[order(bic),]
 head(bestArima)
+```
 
-#' And notice how models of integrated processes occupy the first 6 places, even though the best model is a stationary ARMA(1,0).
-#' For future use we can just filter the models with `d > 0`:
+ And notice how models of integrated processes occupy the first 6 places, even though the best model is a stationary $ARMA(1,0)$. For future use we can just filter the models with $d > 0$:
 
+```{r}
 bestArima1 <- bestArima[which(bestArima[2] == 1),]
 head(bestArima1)
+```
 
-#'
-#' #### 6.2.2 SARIMA ####
-#' 
-#' Seasonal Auto-Regressive Integrated Moving-Average type models use the fact that for each value `x_t`
-#' the model retains memory from its previous period of length `L`, of potentially `D`-th difference, giving rise to additional parameters
-#' `(P, D, Q)` and `L` to an ARIMA model.
-#' For example we can model the residual time series as a SARIMA(1,1,1)x(1,1,1)[10] (with a 10-day period):
+#### 6.2.2 SARIMA
+ 
+Seasonal Auto-Regressive Integrated Moving-Average type models use the fact that for each value $x_t$ the model retains memory from its previous period of length $L$, of potentially $D$-th difference, giving rise to additional parameters
+ $(P, D, Q)$ and $L$ to an ARIMA model.
+ For example we can model the residual time series as a $SARIMA(1,1,1)\times (1,1,1)[10]$ (with a 10-day period):
 
+```{r}
 ( mod <- arima(x, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=10)) )
+```
 
-#' and compare the results with an ARIMA(1,1,1) model:
-
-mod2 <- arima(x, order=c(1,1,1))
+and compare the results with an $ARIMA(1,1,1)$ model:
 
 ```{r arimavssarima, fig.width=11, fig.height=6}
-plot(x, xlab="day", ylab="[캜]", main="ARIMA vs SARIMA")
+mod2 <- arima(x, order=c(1,1,1))
+
+plot(x, xlab="day", ylab="[째C]", main="ARIMA vs SARIMA")
 lines(x - mod2$residuals, col="blue", lwd=2)
 lines(x - mod$residuals, col="red", lwd=2)
 legend("topleft", legend=c("ARIMA(1,1,1)","SARIMA(1,1,1)x(1,1,1)[10]"),
        col=c("blue","red"), lty=1, bty="o",lwd=2 , cex=0.8)
+```
 
-#' We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the 
-#' model has no previous period to base its fitted values upon. 
-#' After searching through combinations of ARIMA `(p,d,q)` and SARIMA parameters `(P,D,Q)` for periods `L = 13, 16, 22` and `45` days, 
-#' we chose the following orders:
+We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the model has no previous period to base its fitted values upon. After searching through combinations of ARIMA $(p,d,q)$ and SARIMA parameters $(P,D,Q)$ for periods $L = 13, 16, 22$ and $45$ days, we chose the following orders:
 
+```{r}
 sarimaParams <- list(
   list(p=1, d=0, q=0, P=0, D=1, Q=1),
   list(p=1, d=0, q=1, P=0, D=1, Q=1),
@@ -1692,9 +1711,11 @@ sarimaParams <- list(
 )
 
 sarimaPeriods <- c(13, 16, 22, 45)
+```
 
-#' which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
+which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
 
+```{r}
 models.sarima <- list()
 for (L in sarimaPeriods) {
   for (i in 1:length(sarimaParams)) {
@@ -1706,6 +1727,7 @@ for (L in sarimaPeriods) {
     models.sarima[[key]] <- c(p=p, d=d, q=q, P=P, D=D, Q=Q, L=L, rss=model$sigma2, AIC=model$aic, BIC=InfCrit(model, type="BIC"))
   }
 }
+
 models.sarima <- data.frame(matrix(unlist(models.sarima), nrow=length(models.sarima), byrow=T))
 names(models.sarima) <- c("p", "d", "q", "P", "D", "Q", "L", "RSS", "AIC", "BIC")
 head(models.sarima)
@@ -1713,18 +1735,16 @@ head(models.sarima)
 bic <- models.sarima[10]
 bestSarima <- models.sarima[order(bic),]
 head(bestSarima)
+```
 
-#' The SARIMA periods were chosen by searching through a much larger parameter space (with incremental periods 1 to 49). 
-#' For the purposes of this presentation, we omit the procedure to save computation time.
-#' 
-#' #### 6.2.3 ARFIMA ####
-#' 
-#' So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing 
-#' computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that
-#' the nonzero values of the data's ACF still appear after 30 steps.
+The SARIMA periods were chosen by searching through a much larger parameter space (with incremental periods 1 to 49). For the purposes of this presentation, we omit the procedure to save computation time.
+ 
+#### 6.2.3 ARFIMA
+ 
+So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that the nonzero values of the data's ACF still appear after 30 steps.
 
-
-library(fracdiff)
+```{r}
+suppressMessages(pkgTest("fracdiff"))
 model.fd <- fracdiff(x, nar=1, nma=0)
 model.fd$d
 
@@ -1753,27 +1773,26 @@ head(models.arfima)
 bic <- models.arfima[5]
 bestArfima <- models.arfima[order(bic),]
 head(bestArfima)
+```
 
-#' #### 6.2.4 GARCH - Conditionally Heteroskedastic Models ####
-#' 
-#' Short for Generalized Auto-Regressive Conditionally Heteroskedastic, this set of models owe their non-stationary properties 
-#' to non-constant local variance (skedasticity) in time. 
+#### 6.2.4 GARCH 
+ 
+Short for Generalized Auto-Regressive Conditionally Heteroskedastic, this set of models owe their non-stationary properties to non-constant local variance (skedasticity) in time. 
 
+```{r}
 library(lmtest)
 ( bpres_studentized <- bptest(model.cCos, studentize=T) )
 ( bpres_nstud <- bptest(model.cCos, studentize=F) )
+```
 
-#' In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions).
-#' This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of 
-#' a model we deem most fit for `x`:
+In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions). This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of a model we deem most fit for `x`:
 
-
+```{r sarimaData, fig.width=10, fig.height=5}
 model_id <- 1
 p = bestSarima[model_id, 1]; d = bestSarima[model_id, 2]; q = bestSarima[model_id, 3];
 P = bestSarima[model_id, 4]; D = bestSarima[model_id, 5]; Q = bestSarima[model_id, 6]; L = bestSarima[model_id, 7];
 
-```{r sarimaData, fig.width=10, fig.height=5}
-require(astsa)
+suppressMessages(pkgTest("astsa"))
 sarim <- sarima(x, p=p, d=d, q=q, P=P, D=D, Q=Q, S=L) # we can use a different method with more output
 
 name <- paste("SARIMA(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
@@ -1782,44 +1801,43 @@ sarimaModel <- Arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
 
 xres <- sarimaModel$residuals
 xres <- xres[L:length(xres)]
+```
 
 ```{r garchData, fig.width=10, fig.height=4}
 par(mfrow=c(1,2))
 acf(xres, lag=50, main=paste(name," resid ACF"))
 acf(xres^2, lag=50, main=paste(name," resid PACF"))
+```
 
-#' The residues `xres` of the chosen SARIMA model seem to be uncorrelated (white noise). Nevertheless if `xres^2` are correlated, they 
-#' could be modelled via a conditionally heteroskedastic model. The square errors show barely significant correlation, 
-#' For a generalized ARCH (GARCH) model we have 2 parameters `p` and `q` to choose. They are analogous to AR and MA terms, except
-#' they are also used as dimensions for another regression, namely for `(sigma_t)^2` which is the square series of the varying residuals. 
+The residues `xres` of the chosen SARIMA model seem to be uncorrelated (white noise). Nevertheless if `xres^2` are correlated, they could be modelled via a conditionally heteroskedastic model. The square errors show barely significant correlation, For a generalized ARCH (GARCH) model we have 2 parameters `p` and `q` to choose. They are analogous to AR and MA terms, except they are also used as dimensions for another regression, namely for $\sigma_t^2$ which is the square series of the varying residuals. 
 
+```{r garchACF, fig.width=10, fig.height=4}
 require(tseries)
 p <- 1; q <- 0;
 modelGarch <- garch(xres, order=c(p,q), trace=F)
 garch_res <- modelGarch$residuals
 garch_res <- na.omit(garch_res)
-```{r garchACF, fig.width=10, fig.height=4}
+
 par(mfrow=c(1,2))
 acf(garch_res, lag=100, main=paste("GARCH(",p,",",q,") res"))
 acf(garch_res, lag=100, main=paste("GARCH(",p,",",q,") res"), type="partial")
 
 summary(modelGarch)
+```
 
-#' The results suggest that GARCH fit changes nothing. Also considering the fact that the BP test confirmed the data's homoskedasticity,
-#' we should not use this model at all.
-#' 
-#' ### 6.3 Predictive Properties of the Chosen Models ###
-#' 
-
+The results suggest that GARCH fit changes nothing. Also considering the fact that the BP test confirmed the data's homoskedasticity, we should not use this model at all.
+ 
+### 6.3 Predictive Properties of the Chosen Models
+ 
+```{r predictComparison, fig.width=11, fig.height=5.5}
 X <- model.sCos$residuals
 
-```{r predictComparison, fig.width=12, fig.height=7}
 par(mfrow=c(1,1))
 plot_models <- vector()
 
 model1_id <- 1;
 p = bestArima[model1_id, 1]; d = bestArima[model1_id, 2]; q = bestArima[model1_id, 3];
-key <- paste("(",p,",",d,",",q,")", sep="")
+key <- paste("(",p,",",q,")", sep="")
 name <- paste("ARMA", key, sep="")
 plot_models[1] <- name
 
@@ -1827,7 +1845,7 @@ ARMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,
 
 model2_id <- 1;
 p = bestArima1[model2_id, 1]; d = bestArima1[model2_id, 2]; q = bestArima1[model2_id, 3];
-key <- paste("(",p,",",q,")", sep="")
+key <- paste("(",p,",",d,",",q,")", sep="")
 name <- paste("ARIMA", key, sep="")
 plot_models[2] <- name
 
@@ -1864,7 +1882,7 @@ colors <- c(hsv((9.5 - 2) / 8), hsv((9.5 - 3) / 8), hsv((9.5 - 5) / 8), hsv(h=(9
 
 plot(x_test, type="l", 
      xlim=c(floor(0.9*length(x)), length(X)), ylim=c(3.5, 17),
-     main="1-step predictions of chosen models", xlab="day", ylab="[캜]")
+     main="1-step predictions of chosen models", xlab="day", ylab="[째C]")
 lines(x=nt:(nt + 1), y=temp$T[nt:(nt + 1)])
 lines(x=(nt + 1):(nt + ne), y=ARMA_predict, lwd=2, col=colors[1], type="l")
 lines(x=(nt + 1):(nt + ne), y=ARIMA_predict, lwd=2, col=colors[2], type="l")
@@ -1874,16 +1892,16 @@ lines(x=(nt + 1):(nt + ne), y=ARFIMA_predict, lwd=2, col=colors[4], type="l")
 lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="black", type="p", pch=1)
 legend("bottomleft", legend=c(plot_models,"data"),
        col=c(colors, "black"), lty=c(1, 1, 1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, NA, NA, 1))
+```
 
-#' We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type 
-#' (ARIMA, SARIMA, ARFIMA), more specifically according to the root mean square error (RMSE) of 1-step predictions
-#' 
-#' #### 6.3.1 ARIMA ####
+We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type  (ARIMA, SARIMA, ARFIMA), more specifically according to the root mean square error (RMSE) of 1-step predictions
+ 
+#### 6.3.1 ARIMA
 
+```{r arimaPreds, fig.width=12, fig.height=5}
 errors <- list()
 xp_resids <- list()
 
-```{r arimaPreds, fig.width=12, fig.height=5}
 library(forecast)
 par(mfrow=c(1,2))
 for (i in 1:6) {
@@ -1908,15 +1926,16 @@ for (i in 1:6) {
   fc$upper <- fc$upper + temp_eval$sCos
   fc$x <- fc$x + temp_test$sCos
   xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[캜]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  plot(fc, lwd=1, xlab="day", ylab="[째C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
   mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
   lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
   legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
+```
 
-#' #### 6.3.2 SARIMA ####
+#### 6.3.2 SARIMA
 
 ```{r sarimaPreds, fig.width=12, fig.height=5}
 par(mfrow=c(1,2))
@@ -1944,36 +1963,32 @@ for (i in 1:6) {
   fc$upper <- fc$upper + temp_eval$sCos
   fc$x <- fc$x + temp_test$sCos
   xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[캜]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  plot(fc, lwd=1, xlab="day", ylab="[째C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
   mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
   lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
   legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
+```
 
-#' Here we notice that the stabilisation effect in prediction values is not present in SARIMA `ne`-step predictions (length of the eval. part).
-#' This is caused by the periodic correlation within the series. Each step is correlated not only up to `p` steps in true history, `q` steps in
-#' noise history, with `d`-th unit root order, but also the same combination of correlations `L` steps into the past. This is the reason why 
-#' the fitted values seem to copy the time series in its first period, and then follow with the "memory" of this preceding section. Predicting
-#' an arbitrary number of steps will result in a repeating periodic pattern which does not decay, since it regresses against its values
-#' so far back.
-#' 
-#' In the prediction plots we notice that some models, particularly those with higher MA degree, differ quite substantially in the
-#' multiple-step prediction mean value compared to single-step predictions. This is most most noticeable in model:
+Here we notice that the stabilisation effect in prediction values is not present in SARIMA `ne`-step predictions (length of the eval. part). This is caused by the periodic correlation within the series. Each step is correlated not only up to `p` steps in true history, `q` steps in noise history, with `d`-th unit root order, but also the same combination of correlations `L` steps into the past. This is the reason why the fitted values seem to copy the time series in its first period, and then follow with the "memory" of this preceding section. Predicting an arbitrary number of steps will result in a repeating periodic pattern which does not decay, since it regresses against its values so far back.
+ 
+In the prediction plots we notice that some models, particularly those with higher MA degree, differ quite substantially in the multiple-step prediction mean value compared to single-step predictions. This is most most noticeable in model:
 
+```{r}
 diffRMSE <- lapply(errors, function(e) c(model=e[1], dRMSE=abs(as.numeric(e[2]) - as.numeric(e[3]))))
 diffRMSE <- data.frame(matrix(unlist(diffRMSE), nrow=length(diffRMSE), byrow=T))
 names(diffRMSE) <- c("model", "dRMSE")
 dRMSE <- diffRMSE[2]
 ( dRMSEmax <- diffRMSE[order(dRMSE, decreasing=T),][1,] )
+```
 
-#'
-#' #### 6.3.3 ARFIMA ####
-#' 
+#### 6.3.3 ARFIMA
 
-library(fracdiff)
 ```{r arfimaPreds, fig.width=12, fig.height=5}
+library(fracdiff)
+
 par(mfrow=c(1,2))
 for (i in 1:6) {
   p = bestArfima[i, 1]; d = bestArfima[i, 2]; q = bestArfima[i, 3];
@@ -1997,15 +2012,16 @@ for (i in 1:6) {
   fc$upper <- fc$upper + temp_eval$sCos
   fc$x <- fc$x + temp_test$sCos
   xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[캜]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
+  plot(fc, lwd=1, xlab="day", ylab="[째C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
   mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
   lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
   legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
+```
 
-#' #### Best ARMA model (for comparison) ####
+#### Best ARMA model (for comparison)
 
 ```{r armaPred, fig.width=11, fig.height=5}
 par(mfrow=c(1,1))
@@ -2028,20 +2044,19 @@ fc$lower <- fc$lower + temp_eval$sCos
 fc$upper <- fc$upper + temp_eval$sCos
 fc$x <- fc$x + temp_test$sCos
 xp <- xp + temp_eval$sCos
-plot(fc, lwd=1, xlab="day", ylab="[캜]", main=paste("ARIMA", key, sep=""), xlim=c(floor(0.4*length(x)), length(X)))
+plot(fc, lwd=1, xlab="day", ylab="[째C]", main=paste("ARIMA", key, sep=""), xlim=c(floor(0.4*length(x)), length(X)))
 mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
 lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
 lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
 legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
        col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
+```
 
-#' #### 6.3.4 Comparison of Predictive Properties ####
-#'
-#' So far, we have chosen 6 best models from each category (ARIMA, SARIMA, ARFIMA) of integrated processes. These 18 possibilities 
-#' (23 if we include ARMA models from section 4) have to be sorted according to their predictive properties, namely errors and DM test. 
-#' Since an `18 x 18` (`23 x 23`) Diebold-Mariano matrix seems too large for practical purposes, we will choose 5 models from all 
-#' categories with the lowest `RMSE` of single-step predictions.
+#### 6.3.4 Comparison of Predictive Properties
 
+So far, we have chosen 6 best models from each category (ARIMA, SARIMA, ARFIMA) of integrated processes. These 18 possibilities (23 if we include ARMA models from section 4) have to be sorted according to their predictive properties, namely errors and DM test. Since an $18 \times 18$ ($23 \times 23$) Diebold-Mariano matrix seems too large for practical purposes, we will choose 5 models from all  categories with the lowest `RMSE` of single-step predictions.
+
+```{r}
 # we can also include errors from top 5 ARMA list
 
 for (i in 1:5) {
@@ -2058,13 +2073,17 @@ names(errors) <- c("model", "RMSE(1)", paste("RMSE(", ne, ")", sep=""), "BIC")
 rmse1 <- errors[2]
 lowestRMSE1_resids <- xp_resids[order(rmse1),]
 ( lowestRMSE1 <- errors[order(rmse1),] )
+```
 
-#' And the 5 models with the lowest RMSE are:
+And the 5 models with the lowest RMSE are:
 
+```{r}
 head(lowestRMSE1, 5)
+```
 
-#' And we can apply the DM test on first 6 models:
+And we can apply the DM test on first 6 models:
 
+```{r}
 npred_models <- 6
 DieboldMarianoMatrix <- matrix(0, ncol=npred_models, nrow=npred_models)
 pvalueMatrix <- matrix(1, ncol=npred_models, nrow=npred_models)
@@ -2080,11 +2099,11 @@ for(i in 1:npred_models) {
 DieboldMarianoMatrix
 
 pvalueMatrix
+```
 
-#' we observe that there are no significant differences between models. Perhaps the 5th and 6th model seem to have most significantly
-#' different predictive abilities from the very first. Significant differences appear as we increase the dimension of the
-#'  `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities 
+we observe that there are no significant differences between models. Perhaps the 5th and 6th model seem to have most significantly different predictive abilities from the very first. Significant differences appear as we increase the dimension of the `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities 
 
+```{r}
 better_than <- list()
 npred_models <- 23
 #DieboldMarianoMatrix <- matrix(0, ncol=npred_models, nrow=npred_models)
@@ -2104,34 +2123,34 @@ for(i in 1:npred_models) {
 better_than <- data.frame(matrix(unlist(better_than), nrow=length(better_than), ncol=2, byrow=T))
 names(better_than) <- c("model", "better than")
 better_than
+```
 
-#' Thus according to Diebold-Mariano test, many of the previously computed ARMA-type models could have better predictive properties than
-#' some ARIMA models (and one SARIMA model). 
-#' 
-#' ## 6.4 Conclusions ##
-#'  
-#'  As the matter of fact, different types of models of integrated processes capture different properties of the time series. 
-#'  
-#'  While ARIMA models (with `d > 0`) seem to outcompete their ARMA counterparts in both `BIC` and `RMSE`, the DM-test 
-#'  seems to suggest that some ARMA models provide more accurate predictions than some ARIMA models. With no other model being 
-#'  significantly more accurate (except for `ARIMA(0,1,3)` being slightly more accurate than `SARIMA(1,0,1)(0,1,1)[45]`) than a 
-#'  SARIMA model, and also considering the sorting according to `BIC` as well as prediction error `RMSE`, we conclude that the 
-#'  following SARIMA models are the most accurate:
+Thus according to Diebold-Mariano test, many of the previously computed ARMA-type models could have better predictive properties than some ARIMA models (and one SARIMA model). 
+ 
+### 6.4 Conclusions
+  
+As the matter of fact, different types of models of integrated processes capture different properties of the time series. 
+While ARIMA models (with $d > 0$) seem to outcompete their ARMA counterparts in both $BIC$ and $RMSE$, the DM-test seems to suggest that some ARMA models provide more accurate predictions than some ARIMA models. With no other model being significantly more accurate (except for $ARIMA(0,1,3)$ being slightly more accurate than $SARIMA(1,0,1)(0,1,1)[45]$) than a SARIMA model, and also considering the sorting according to $BIC$ as well as prediction error $RMSE$, we conclude that the   following SARIMA models are the most accurate:
 
+```{r, echo=F}
 head(lowestRMSE1, 5)
+```
 
-#' `RMSE` of single-step predictions as the characteristic of choice for ordering. It should be noted that the mean value of `ne`-step
-#' predictions of the last model seems to drift too far from the actual data as well as the 1-step predictions:
+$RMSE$ of single-step predictions as the characteristic of choice for ordering. It should be noted that the mean value of `ne`-step predictions of the last model seems to drift too far from the actual data as well as the 1-step predictions:
 
+```{r, echo=F}
 dRMSEmax
+```
 
-#' We have chosen not to use models of type (G)ARCH since the BP-test of the initial seasonal model confirmed the homoskedasticity of
-#' residuals with p-values:
+We have chosen not to use models of type (G)ARCH since the BP-test of the initial seasonal model confirmed the homoskedasticity of residuals with p-values:
 
+```{r, echo=F}
 bpres_studentized$p.value
+```
+for the studentized version of the test, and
 
-#' for the studentized version of the test, and
-
+```{r, echo=F}
 bpres_nstud$p.value
+```
 
-#' for the non-studentized version.
+for the non-studentized version.
