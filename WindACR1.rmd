@@ -2023,19 +2023,12 @@ for a multiplicative error.
 require(forecast)
 pkgTest("aTSA")
 
-aTSA_es <- expsmooth(x, trend=2, alpha=0.2)
-
-aTSA_es$accurate
-
-fc_ses <- ses(x, alpha=0.01, initial="optimal")
-
-fc_ses$model
-
+aTSA_es <- expsmooth(x, trend=1, alpha=0.2969)
 
 ( fc_ets <- ets(x) )
 
 fc_ets$x <- fc_ets$x + temp_test$sCos
-fc_ets.fc <- forecast(fc_ets, h=ne, level=c(80, 95))
+fc_ets.fc <- predict(fc_ets, h=ne, level=c(80, 95))
 
 fc_ets.fc$mean <- fc_ets.fc$mean + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
 fc_ets.fc$upper <- fc_ets.fc$upper + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
