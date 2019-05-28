@@ -1991,3 +1991,60 @@ head(lowestBIC, 5)
 ```
 
 Thus quantitatively, SARIMA models seem to outcompete the remaining categories (in $RMSE$ and $BIC$) even though mostly ARMA and some ARIMA and ARFIMA models are the reasonable choice.
+
+## 7. Exponential Smoothing Methods
+
+Exponential smoothing techniques were among the first to appear (in 1950's), and were, thanks to being relatively fast, used in various predictions and smoothings of time series. Whereas in MA-type models the finite moving averages contribute to each point using regression extimation of their coefficients, the ES technique uses an exponential window, i.e.: a weighed moving average of all values which decreases exponentially into the past.
+
+### 7.1 Choice of a Smoothing Technique for our Data
+
+Each time series could potentially have three properties which can be smoothed, namely: <br/>
+
+  1.) level (mean value) <br/>
+  2.) trend (slope) <br/>
+  3.) seasonality (containing weighed averages of each $L$ steps into the past) <br/>
+
+The approach to each property can either be additive ($A$) or multiplicative ($M$). 
+We will work with the residuals `temp_test$Tres` with extracted annual period, hence we will not model any seasonality, or trend. We are left with additive and multiplicative models of the exponential smoothing of mean values. The additive smoothing models are governed by the following set of recurrence equations:
+
+$x_t = a_t + \epsilon_t$ (observation eqn') <br/>
+
+$a_t = a_{t-1} + \alpha \epsilon_t$ (state space eqn'),  $\alpha \in [0, 1]$ <br/>
+
+for an additive error, and  <br/>
+
+$x_t = a_{t-1} (1 + \epsilon_t)$ (observation) <br/>
+
+$a_t = a_{t-1} (1 + \alpha \epsilon_t)$ (state),  $\alpha \in [0, 1]$ <br/>
+
+for a multiplicative error.
+
+```{r etsEstim, fig.width=12, fig.height=5}
+require(forecast)
+pkgTest("aTSA")
+
+aTSA_es <- expsmooth(x, trend=2, alpha=0.2)
+
+aTSA_es$accurate
+
+fc_ses <- ses(x, alpha=0.01, initial="optimal")
+
+fc_ses$model
+
+
+( fc_ets <- ets(x) )
+
+fc_ets$x <- fc_ets$x + temp_test$sCos
+fc_ets.fc <- forecast(fc_ets, h=ne, level=c(80, 95))
+
+fc_ets.fc$mean <- fc_ets.fc$mean + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
+fc_ets.fc$upper <- fc_ets.fc$upper + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
+fc_ets.fc$lower <- fc_ets.fc$lower + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
+
+fc_ets$states[,1] <- fc_ets$states[,1] + model.sCos$fitted.values[1:(nt + 1)]
+plot(fc_ets)
+
+plot(fc_ets.fc)
+lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
+
+```
