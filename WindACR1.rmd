@@ -23,7 +23,7 @@ pkgTest <- function(x) {
 
 The chosen source of data is a wind farm located in the North Sea (with coords: 54.01433°NL, 6.587667°EL) denoted as LES (1y 2015-01-01 2015-12-31 cfsr) which comes from website http://www.vortexfdc.com/, specifically designed to provide its
   users with weather data for potential wind farm sites. This specific dataset has been obtained (for free) from year 2015, and contains a variety of measurements, ranging from wind velocity magnitude, through the wind direction angle, temperature up to dimensionless characteristics like  the Richardson number "Ri" which corresponds to the ratio of buoyancy over shear flow.
-In the first 7 parts of this project, I focus on the analysis of a single variable, namely temperature T [°C]. Since the dataset consist of over 47 000 observations of 11 different variables, and thus might be difficult to visualize, I've chosen to include only the temperature measurements for each day at 12am.
+In the first 7 parts of this project, I focus on the analysis of a single variable, namely temperature T [°C]. Since the dataset consist of over 47 000 observations of 11 different variables, and thus might be difficult to visualize, I've chosen to include only the average temperature measurements for each day.
  
  ---------------------------------------------------------------------------------------
 
@@ -32,60 +32,44 @@ In the first 7 parts of this project, I focus on the analysis of a single variab
 We begin by extracting the data from a downloaded file
 
 ```{r}
-temperature <- read.table("vortex_TS.txt", header = T, skip = 3, 
+vortex_dat <- read.table("vortex_TS.txt", header = T, skip = 3, 
                           colClasses = "character")
 ```
 
- and tagging the 8th column with a mark "T" for temperature
+The dataset contains 47808 values, making it too large for our methods. Thus we will choose daily values, namely the average daily temperature. To get the daily data we need to `aggregate` values with the same date:
 
 ```{r}
-names(temperature)[8] <- c("T")
-```
- then separating the time data into separate columns using the Tidyr package
+suppressMessages(pkgTest("dplyr"))
+names(vortex_dat)[8] <- c("temperature")
 
-```{r}
-suppressMessages(pkgTest("tidyr"))
-temperature <- tidyr::separate(data = temperature, col = YYYYMMDD, 
+vortex_dat <- tidyr::separate(data = vortex_dat, col = YYYYMMDD, 
                                into = c("year","month","day"), sep=c(4,6))
-temperature <- tidyr::separate(data = temperature, col = HHMM, 
+vortex_dat <- tidyr::separate(data = vortex_dat, col = HHMM, 
                                into = c("hour","minute"), sep=2)
+
+vortex_dat <- tidyr::unite(vortex_dat, col=time, year, month, day, hour, minute, sep="-", remove=T)
+vortex_dat$time <- as.Date(vortex_dat$time)
+
+temp <- aggregate(as.numeric(vortex_dat$temperature), by=list(vortex_dat$time), mean)
+names(temp) <- c("day", "T")
+
+head(temp)
+
 ```
 
- and convert the time columns to numbers:
-
-```{r}
-temperature <- as.data.frame(apply(temperature, 2, as.numeric))
-```
-
- Create a separate array with columns: "year","month","day","hour","minute","T"
- filtering only the temperature at 12am each day:
-
-```{r}
-temp <- temperature[temperature$hour==12 & temperature$minute==0,
-                    c("year","month","day","hour","minute","T")] 
-```
-
- and uniting the time columns saving them as "YYYY-MM-DD-HH-MM" dates
-
-```{r}
-temp <- tidyr::unite(temp, col=time, year, month, day, hour,
-                     minute, sep="-", remove=T)
-temp$time <- strptime(temp$time, format="%Y-%m-%d-%H-%M")
-lastDate <- temp$time[length(temp$time)]
-temp$time <- as.numeric(difftime(temp$time, temp$time[1], units = "days"))
-```
-
- Now we can visualize the data as followed
+Now we can visualize the data as followed:
 
 ```{r basicDataPlot1, fig.width=9, fig.height=6}
 suppressMessages(pkgTest("rmarkdown"))
 suppressMessages(pkgTest("knitr"))
 
+temp$time <- 1:nrow(temp)
+
 par(mfrow=c(1,1))
-plot(T ~ temp$time, temp, type="p",xlab="day", ylab="T[°C]",main="Daily temperature at 12:00",axes=F)
-lines(temp$time, temp$T,col="black")
+plot(x=temp$time, y=temp$T, type="p",xlab="day", ylab="T[°C]",main="Daily temperature",axes=F)
+lines(x=temp$time, y=temp$T,col="black")
 axis(side=1, at=seq(1, 365, 7))
-axis(side=2, at=seq(min(temp$T), max(temp$T), by=2))
+axis(side=2, at=seq(round(min(temp$T), 1), round(max(temp$T), 1), by=2))
 box()
 ```
 
@@ -160,7 +144,7 @@ mdays = c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 from = 1; to = 0;
 
 par(mfrow=c(1,2))
-for (month in 1:11) {
+for (month in 1:12) {
   to = ifelse(month == 12, n, to + mdays[month])
   seg = from:to
   plot(x=1:length(seg), y=temp$T[seg], type="l",
@@ -217,7 +201,7 @@ plot(T ~ temp_test$time, temp_test,
      main="Fitted Annual Temperature Model",xlab="day",ylab="T[°C]",axes=F)
 lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
 axis(side=1, at=seq(1, n, 7))
-axis(side=2, at=seq(min(temp_test$T), max(temp_test$T), by=2))
+axis(side=2, at=seq(round(min(temp_test$T),1), round(max(temp_test$T),1), by=2))
 lines(temp_test$time, temp_test$sCos, col="blue", lwd=2)
 box()
 
@@ -388,6 +372,7 @@ box()
 legend("topleft", legend=c("seasonal","seasonal + Fourier"),
        col=c("red","blue"), lty=1,lwd=2 , cex=0.8)
 ```
+
 ```{r finalResidues,fig.width=10, fig.height=3.5}
 #length(temp_test$Tres)
 #length(model.sCos$residuals)
@@ -467,15 +452,15 @@ den <- sum(values2 ^ 2)
 ( DW <- (sum((values2[2:nv] - values2[1:(nv - 1)])^2))/den )
 ```
 
-The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number `k` of the terms of linear regression (intercept included), in our case `k = 2` and `size = 265`, hence in a 5% confidence interval:
+The resulting DW statistic is then compared with the D-W critical values for a sample of given size and a number `k` of the terms of linear regression (intercept included), in our case `k = 2` and `size = 277`, hence in a 5% confidence interval:
 
 ```{r}
 # dL         dU
-# 1.78900  1.80444 (n = 260)
 # 1.79306  1.80792 (n = 270)
+# 1.79690  1.81123 (n = 280)
 
-dL <- 0.5 * (1.78900 + 1.79306)
-dU <- 0.5 * (1.80444 + 1.80792)
+dL <- 0.5 * (1.79306 + 1.79690)
+dU <- 0.5 * (1.80792 + 1.81123)
 
 if(DW <= dL) {
   message("Alternative Hypothesis: Positive Autocorrelation!")
@@ -515,7 +500,7 @@ car::durbinWatsonTest(model.sCos, max.lag=10, alternative="negative")
 car::durbinWatsonTest(model.sCos, max.lag=10, alternative="positive")
 ```
 
-We see that DW tests have zero p-value up to lag 3. This means that we could be dealing with an AR process of order 3 or higher.
+We see that DW tests have zero p-value up to lag 4. This means that we could be dealing with an AR process of order 4 or higher.
 
 #### 3.2.2 Zero ACF Test
 The test reduces to just finding all the ACF lags k with $ACF(k) > 2/ \sqrt{n}$ where $n$ is the length of the time series.
@@ -811,7 +796,7 @@ legend("topright", legend=c("ACF","PACF"), col = c("black","red"), lty=c(1,1))
 The partial correlogram (red) shows that the most significant correlations are for lags $L = 1$, and $L = 40$. The second lag, however, does not exceed the zero region nearly as much as $L = 1$. It is then reasonable to assume that the most viable model will be of AR order $p = 1$. Hence:
 
 ```{r}
-kmax = 50; pmax = 30; qmax = 30;
+kmax = 90;
 ```
 
 The Yule-Walker method based on solving regression equations against an increasing basis of AR terms can be done through the inbuilt `ar()` function which automatically finds the model with the lowest AIC (Akaike's Information Criterion). And by plotting the `$aic` parameter we obtain differences $AIC_{min} - AIC_k$ for all models.
@@ -1090,7 +1075,7 @@ for (i in 1:5) {
 }
 ```
 
-Using the zero-value approximation: $2/\sqrt{n_t}$, where $n_t$ (`nt`) is the length of the residual time series, we notice that there seems to be a resilient 23-day lag which was not removed (even after including the significant residual lags such as 14, and 23 in the `model.sCos` in section 3). The significance of the 23-day lag, however, is not nearly as high as it would have otherwise been (with additional significant lags) if additional lags had not been introduced prior to carrying out the Hannan-Rissanen procedure. Thus we can assume that all models, having no other significant lags than the 23-day lag, describe the behavior of the test part of the residual time series reasonably well. In the following list:
+Using the zero-value approximation: $2/\sqrt{n_t}$, where $n_t$ (`nt`) is the length of the residual time series, we notice that there seems to be a resilient 83-day lag which was not removed (even after including the significant residual lags such as 45, and 83 in the `model.sCos` in section 3). The significance of the 83-day lag, however, is not nearly as high as it would have otherwise been (with additional significant lags) if additional lags had not been introduced prior to carrying out the Hannan-Rissanen procedure. Thus we can assume that all models, having no other significant lags than the 83-day lag, describe the behavior of the test part of the residual time series reasonably well. In the following list:
 
 ```{r}
 Nonzeros
@@ -1206,7 +1191,7 @@ DieboldMarianoMatrix
 pvalueMatrix
 ```
 
-As the results of the Diebold-Mariano test suggest, models 3 and 5 have better predictive abilities than all the remaining models on a 5% significance level.
+As the results of the Diebold-Mariano test suggest, no model has significantly better predictive abilities on a 5% significance level.
 A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE). Here we can see how the predictions match the observed values from the evaluation part of the time series:
 
 ```{r predictPlot2, echo=T, fig.width=9, fig.height=6}
@@ -1236,6 +1221,7 @@ Predicting one step ahead of data can be done naiively by fitting and ARMA model
 In this section we compare the multiple-step predictions (with the length of the evaluation part) for the top 5 ARMA models:
 
 ```{r multipredictPlot, echo=T, fig.width=12, fig.height=4}
+require(forecast)
 par(mfrow=c(1,1))
 ne <- length(temp_eval$time)
 x <- as.numeric(temp_test$Tres)
@@ -1474,7 +1460,7 @@ The ACF and PACF plots above might suggest which correlation lags remain in the 
 data.frame(cbind(lag=lags, ACF=lagValues))
 ```
 
-The correlation within the data is the highest for $L=1$, $L=2$, $L=3$, $L=7$ and then for $L=48$ and $L=49$. Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as integrated processes.
+The correlation within the data is the highest for $L=1, ... , 5$ and then for $L=44$ and $L=45$. Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as integrated processes.
  First, we need to estimate the difference order $d$. For most processes $d = 1$. The remaining parameters can be automatically estimated via a search function, for example:
 
 ```{r}
@@ -1641,7 +1627,7 @@ library(lmtest)
 ( bpres_nstud <- bptest(model.cCos, studentize=F) )
 ```
 
-In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions). This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of a model we deem most fit for `x`:
+In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions). For non-studentized BP-test homoskedasticity almost gets accepted at just above 5%. This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of a model we deem most fit for `x`:
 
 ```{r garchData, fig.width=7, fig.height=4}
 par(mfrow=c(1,2))
@@ -2032,10 +2018,12 @@ simpleExpSmooth <- function(x, alpha) {
     res <- (x - x.hat)
     k <- 1 # nparam
     RSS <- sum(res^2)
-    AIC <- n * log(RSS/n) + 2 * k
-    BIC <- AIC + k * (log(n) - 2)
+    sigma2 <- RSS / n
+    # likelihood of n NID observations
+    AIC <- n * log(RSS) + 2 * (k + 1)
+    BIC <- n * log(RSS) + (k + 1) * log(n)
     
-    result <- list(x=x, x.hat=x.hat, res=res, RSS=RSS, AIC=AIC, BIC=BIC)
+    result <- list(x=x, x.hat=x.hat, res=res, RSS=RSS, sigma2=sigma2, AIC=AIC, BIC=BIC)
     return(result)
 }
 
@@ -2047,6 +2035,8 @@ es_1 <- simpleExpSmooth(x, alpha1)
 
 xp0 <- es_0$x.hat
 xp1 <- es_1$x.hat
+
+# 1-step predictions
 x.hat0 <- c(xp0[nt], numeric(ne))
 x.hat1 <- c(xp1[nt], numeric(ne))
 
@@ -2056,6 +2046,8 @@ for(t in 2:(ne + 1)) {
 }
 
 ```
+
+The model $AIC$ and $BIC$ are computed with respect to the total of two estimated parameters
 
 ```{r simpleEtsEstim, fig.width=12, fig.height=5, echo=F}
 plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
@@ -2068,8 +2060,9 @@ legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-ste
                            paste("ETS(A, N, N), alpha = ", alpha1), paste("1-step prediction, alpha=", alpha1),"data (residuals)"),
          col=c("brown", "blue", "brown", "blue3", "black"), lty=c(1, 1, 20, 20, NA), lwd=c(2, 2, 1, 1, 1), cex=0.8, pch=c(NA, NA, NA, NA, 1))
 
+
 plot(x=1:length(X), y=temp$T, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
-mtext(paste("RMSE = ", round(sqrt(es_0$RSS / (nt - 1)), 4), ", ", round(sqrt(es_1$RSS / (nt - 1)), 4), sep=""))
+mtext(paste("RMSE = ", round(sqrt( sum( (x.hat0 - X[nt:length(X)])^2) / (ne - 1)), 4), ", ", round(sqrt( sum( (x.hat1 - X[nt:length(X)])^2) / (ne - 1)), 4), sep=""))
 lines(xp0 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=2, col="brown")
 lines(xp1 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=1, lty=20, col="brown3")
 lines(x=nt:length(X), y=x.hat0 + as.numeric(model.sCos$fitted.values[nt:length(X)]), lwd=2, col="blue")
@@ -2085,6 +2078,8 @@ We observe that with $\alpha \rightarrow 1^-$ the simple ETS model fits the data
 ```{r etsEstim, fig.width=12, fig.height=5}
 require(forecast)
 ( fc_ets <- ets(x) )
+
+fc_ets$par
 
 fc_ets$x <- fc_ets$x + temp_test$sCos
 fc_ets.fc <- predict(fc_ets, h=ne, level=c(80, 95))
