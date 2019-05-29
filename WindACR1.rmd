@@ -2017,14 +2017,73 @@ $x_t = a_{t-1} (1 + \epsilon_t)$ (observation) <br/>
 
 $a_t = a_{t-1} (1 + \alpha \epsilon_t)$ (state),  $\alpha \in [0, 1]$ <br/>
 
-for a multiplicative error.
+for a multiplicative error. In both cases the error can be expressed as $\epsilon_t = x_t - a_{t - 1} = x_t - \hat{x}_{t|t-1}$. Where 
+$\hat{x}_{t|t-1}$ are prediction estimates from the previous step.
+ The core idea behind simple exponential smoothing with additive error smoothing can be described using the following algorithm:
+
+```{r}
+simpleExpSmooth <- function(x, alpha) {
+    n <- length(x)
+    x.hat <- c(x[1], numeric(n - 1))
+    for (i in 2:n) {  
+      x.hat[i] <- alpha * x[i - 1] + (1 - alpha) * x.hat[i - 1]
+    }
+    
+    res <- (x - x.hat)
+    k <- 1 # nparam
+    RSS <- sum(res^2)
+    AIC <- n * log(RSS/n) + 2 * k
+    BIC <- AIC + k * (log(n) - 2)
+    
+    result <- list(x=x, x.hat=x.hat, res=res, RSS=RSS, AIC=AIC, BIC=BIC)
+    return(result)
+}
+
+alpha0 <- 0.1
+alpha1 <- 0.8
+
+es_0 <- simpleExpSmooth(x, alpha0)
+es_1 <- simpleExpSmooth(x, alpha1)
+
+xp0 <- es_0$x.hat
+xp1 <- es_1$x.hat
+x.hat0 <- c(xp0[nt], numeric(ne))
+x.hat1 <- c(xp1[nt], numeric(ne))
+
+for(t in 2:(ne + 1)) {
+  x.hat0[t] <- as.numeric(alpha0 * X[nt + t - 1] + (1 - alpha0) * x.hat0[t - 1])
+  x.hat1[t] <- as.numeric(alpha1 * X[nt + t - 1] + (1 - alpha1) * x.hat1[t - 1])
+}
+
+```
+
+```{r simpleEtsEstim, fig.width=12, fig.height=5, echo=F}
+plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
+mtext(paste(" BIC = ", round(es_0$BIC, 4), ", ", round(es_1$BIC, 4), sep=""))
+lines(xp0, lwd=2, col="brown")
+lines(xp1, lwd=1, lty=20, col="brown3")
+lines(x=nt:length(X), y=x.hat0, lwd=2, col="blue")
+lines(x=nt:length(X), y=x.hat1, lwd=1, lty=20, col="blue3")
+legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-step prediction, alpha=", alpha0),
+                           paste("ETS(A, N, N), alpha = ", alpha1), paste("1-step prediction, alpha=", alpha1),"data (residuals)"),
+         col=c("brown", "blue", "brown", "blue3", "black"), lty=c(1, 1, 20, 20, NA), lwd=c(2, 2, 1, 1, 1), cex=0.8, pch=c(NA, NA, NA, NA, 1))
+
+plot(x=1:length(X), y=temp$T, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
+mtext(paste("RMSE = ", round(sqrt(es_0$RSS / (nt - 1)), 4), ", ", round(sqrt(es_1$RSS / (nt - 1)), 4), sep=""))
+lines(xp0 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=2, col="brown")
+lines(xp1 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=1, lty=20, col="brown3")
+lines(x=nt:length(X), y=x.hat0 + as.numeric(model.sCos$fitted.values[nt:length(X)]), lwd=2, col="blue")
+lines(x=nt:length(X), y=x.hat1 + as.numeric(model.sCos$fitted.values[nt:length(X)]), lwd=1, lty=20, col="blue3")
+legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-step prediction, alpha=", alpha0),
+                           paste("ETS(A, N, N), alpha = ", alpha1), paste("1-step prediction, alpha=", alpha1),"data (original)"),
+         col=c("brown", "blue", "brown", "blue3", "black"), lty=c(1, 1, 20, 20, NA), lwd=c(2, 2, 1, 1, 1), cex=0.8, pch=c(NA, NA, NA, NA, 1))
+```
+
+We observe that with $\alpha \rightarrow 1^-$ the simple ETS model fits the data more precisely, but at the same time does not account for the error terms properly. 
+  Models with different smoothing parameters (as well as additive or multiplicative smoothing techniques) need to be examined according to some information criterion. 
 
 ```{r etsEstim, fig.width=12, fig.height=5}
 require(forecast)
-pkgTest("aTSA")
-
-aTSA_es <- expsmooth(x, trend=1, alpha=0.2969)
-
 ( fc_ets <- ets(x) )
 
 fc_ets$x <- fc_ets$x + temp_test$sCos
