@@ -2107,6 +2107,8 @@ lines(x=c(bestEts[1,1], bestEts[1,1]), y=c(0, bestEts[1,4]), col="red", lty=2, l
 
 ```
 
+### 7.2 Automatic ETS Model Search Method
+
 Using an `ets` method from the `forecast` package we obtain the same best model:
 
 ```{r etsEstim, fig.width=12, fig.height=5}
@@ -2122,6 +2124,7 @@ fc_ets.fc$lower <- fc_ets.fc$lower + as.numeric(model.sCos$fitted.values[(nt + 1
 
 fc_ets$states[,1] <- fc_ets$states[,1] + model.sCos$fitted.values[1:(nt + 1)]
 plot(fc_ets)
+
 ```
 
 As we notice, the value of smoothing parameter $\alpha$ closer to 1 has a much more subtle smoothing effect than that of models with smaller $\alpha$s. The `ets` method examines a much larger search space than the one we chose for demonstration. In fact, it tests for multiple available combinations of ETS models with additional parameters: $\beta$ (trend), $\gamma$ (season), and $\phi$ (trend damping).
@@ -2131,4 +2134,53 @@ As we notice, the value of smoothing parameter $\alpha$ closer to 1 has a much m
 ```{r etsPredict, fig.width=12, fig.height=5}
 plot(fc_ets.fc)
 lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
+```
+
+### 7.3 Single and Multi-Step Prediction Estimates
+
+Each state variable is a 1-step prediction of the previous values. This makes 1-step predictions relatively straight-forward, as observed on eval parts of chosen models in the beginning of section 7.1. To predict $h > 1$ steps ahead we make use of the state space equations to accumulate the levels (or additional ES parameters):
+
+```{r}
+
+alpha <- bestEts[1,1]
+beta <- 0.0001; phi <- 0.78; h <- 40;
+
+ExpSmoothWithTrend <- function(x, alpha, beta = 0.1, phi = 1, h = 1, type = "additive") {
+  n <- length(x)
+  
+  a <- c(x[1], numeric(n - 1))
+  b <- numeric(n)
+  b[1] <- switch(type, additive = (x[n] - x[1]) / n, multiplicative = x[2] / x[1])
+  x.hat <- c(x[1],numeric(n-1))
+  for (i in 2:n) {
+    if (type == "additive") {
+      a[i] <- alpha * x[i] + (1 - alpha) * (a[i - 1] + phi * b[i - 1])
+      b[i] <- beta * (a[i] - a[i - 1]) + (1 - beta) * phi * b[i - 1]
+      x.hat[i] <- a[i - 1] + phi * b[i - 1]
+    }
+    else {
+      a[i] <- alpha * x[i] + (1 - alpha) * (a[i - 1] * b[i - 1] ^ phi)
+      b[i] <- beta * (a[i] / a[i - 1]) + (1 - beta) * b[i - 1] ^ phi
+      x.hat[i] <- a[i - 1] * b[i - 1] ^ phi
+    }
+  }
+
+    
+    res <- (x[h:n] - x.hat.h)
+    k <- 1 # nparam
+    RSS <- sum(res^2)
+    sigma2 <- RSS / n
+    # likelihood of n NID observations
+    AIC <- n * log(RSS) + 2 * (k + 1)
+    BIC <- n * log(RSS) + (k + 1) * log(n)
+    
+    result <- list(x=x, x.hat=x.hat, res=res, RSS=RSS, sigma2=sigma2, AIC=AIC, BIC=BIC)
+    return(result)
+}
+
+require(aTSA)
+h <- 40
+plot(x, type="l", xlim=c(nt - h, nt + h), ylim=c(-7,6))
+lines(x=(nt + 1):(nt + h), y=Holt(x, lead=h, plot=F, damped=T, phi=0.92)$pred, col="blue2")
+
 ```
