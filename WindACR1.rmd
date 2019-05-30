@@ -2047,7 +2047,8 @@ for(t in 2:(ne + 1)) {
 
 ```
 
-The model $AIC$ and $BIC$ are computed with respect to the total of two estimated parameters
+The errors $\epsilon_t^{Add} = x - \hat{x}_{t|t-1}$ and $\epsilon_t^{Mult} = \frac{x - \hat{x}_{t|t-1}}{\hat{x}_{t|t-1}}$ can be reduced to the formula we used for pointwise smoothing: $\hat{x}_{t|t} = \alpha x_t + (1 - \alpha) \hat{x}_{t|t-1}$.
+The model $AIC$ and $BIC$ are computed with respect to the total of two estimated parameters: initial state and $\alpha$.
 
 ```{r simpleEtsEstim, fig.width=12, fig.height=5, echo=F}
 plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
@@ -2073,13 +2074,43 @@ legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-ste
 ```
 
 We observe that with $\alpha \rightarrow 1^-$ the simple ETS model fits the data more precisely, but at the same time does not account for the error terms properly. 
-  Models with different smoothing parameters (as well as additive or multiplicative smoothing techniques) need to be examined according to some information criterion. 
+  Models with different smoothing parameters need to be examined according to some information criterion. 
+
+```{r} 
+
+models.ets <- list()
+for (alpha in seq(from = 0.001, to = 0.999, by = 0.001)) {
+  ses_estim <- simpleExpSmooth(x, alpha)
+  models.ets[[paste("SES(alpha = ",alpha,")")]] <- c(alpha=alpha, sigma2=ses_estim$sigma2, aic=ses_estim$AIC, bic=ses_estim$BIC)
+}
+
+models.ets <- data.frame(matrix(unlist(models.ets), nrow=length(models.ets), byrow=T))
+names(models.ets) <- c("alpha", "sigma^2", "AIC", "BIC")
+head(models.ets)
+
+```
+
+Now that we searched through 1000 simple ES models with distinct smoothing parameters $\alpha$ we choose the first 2 with the lowest $BIC$:
+
+```{r etsBicPlot, fig.width=7, fig.height=5}
+
+bic <- models.ets[,4]
+bestEts <- models.ets[order(bic),]
+head(bestEts)
+
+plot(x=seq(from = 0.001, to = 0.999, by = 0.001), y=models.ets[,4], xlab="alpha", ylab="BIC", main="BIC of simple ES models", pch=20, type="b", col="blue4", ylim=c(1700, 2100))
+mtext("\\w respect to alpha")
+lines(x=c(0, 0.95), y=c(bestEts[1,4], bestEts[1,4]), col="red", lty=2, lwd=2)
+lines(x=c(bestEts[1,1], bestEts[1,1]), y=c(0, bestEts[1,4]), col="red", lty=2, lwd=2)
+
+
+```
+
+Using an `ets` method from the `forecast` package we obtain the same best model:
 
 ```{r etsEstim, fig.width=12, fig.height=5}
 require(forecast)
 ( fc_ets <- ets(x) )
-
-fc_ets$par
 
 fc_ets$x <- fc_ets$x + temp_test$sCos
 fc_ets.fc <- predict(fc_ets, h=ne, level=c(80, 95))
@@ -2090,8 +2121,13 @@ fc_ets.fc$lower <- fc_ets.fc$lower + as.numeric(model.sCos$fitted.values[(nt + 1
 
 fc_ets$states[,1] <- fc_ets$states[,1] + model.sCos$fitted.values[1:(nt + 1)]
 plot(fc_ets)
+```
 
+As we notice, the value of smoothing parameter $\alpha$ closer to 1 has a much more subtle smoothing effect than that of models with smaller $\alpha$s. The `ets` method examines a much larger search space than the one we chose for demonstration. In fact, it tests for multiple available combinations of ETS models with additional parameters: $\beta$ (trend), $\gamma$ (season), and $\phi$ (trend damping).
+
+  The method also allows multiple-step predictions which we can then display with seasonal fit included:
+
+```{r etsPredict, fig.width=12, fig.height=5}
 plot(fc_ets.fc)
 lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
-
 ```
