@@ -1961,8 +1961,9 @@ for the non-studentized version.
   Another possible evaluation of all the evaluated models is sorting them according to their $BIC$:
   
 ```{r, echo=F}
-bic <- lowestRMSE1[,4]
-lowestBIC <- cbind(lowestRMSE1[order(bic),1:2], lowestRMSE1[order(bic),4])
+bic <- as.numeric(paste(lowestRMSE1[,4]))
+
+lowestBIC <- cbind(lowestRMSE1[order(bic), 1:2], lowestRMSE1[order(bic),4])
 colnames(lowestBIC) <- c("model", "RMSE(1)", "BIC")
 lowestBIC
 ```

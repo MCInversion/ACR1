@@ -641,11 +641,11 @@ simDW &lt;- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])
 ##    3     0.313027183     1.3590661   0.000
 ##    4     0.223506797     1.5238155   0.000
 ##    5     0.181083528     1.6062779   0.000
-##    6     0.136302455     1.6936098   0.012
-##    7     0.137885179     1.6827385   0.006
-##    8     0.114853193     1.7162447   0.018
-##    9     0.057464236     1.8200715   0.164
-##   10    -0.005901538     1.9274691   0.754
+##    6     0.136302455     1.6936098   0.004
+##    7     0.137885179     1.6827385   0.002
+##    8     0.114853193     1.7162447   0.024
+##    9     0.057464236     1.8200715   0.184
+##   10    -0.005901538     1.9274691   0.788
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <pre class="r"><code>car::durbinWatsonTest(model.sCos, max.lag=10, alternative=&quot;negative&quot;)</code></pre>
 <pre><code>##  lag Autocorrelation D-W Statistic p-value
@@ -654,11 +654,11 @@ simDW &lt;- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])
 ##    3     0.313027183     1.3590661   0.000
 ##    4     0.223506797     1.5238155   0.000
 ##    5     0.181083528     1.6062779   0.000
-##    6     0.136302455     1.6936098   0.004
-##    7     0.137885179     1.6827385   0.008
-##    8     0.114853193     1.7162447   0.018
-##    9     0.057464236     1.8200715   0.204
-##   10    -0.005901538     1.9274691   0.722
+##    6     0.136302455     1.6936098   0.010
+##    7     0.137885179     1.6827385   0.006
+##    8     0.114853193     1.7162447   0.012
+##    9     0.057464236     1.8200715   0.186
+##   10    -0.005901538     1.9274691   0.766
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <pre class="r"><code>car::durbinWatsonTest(model.sCos, max.lag=10, alternative=&quot;positive&quot;)</code></pre>
 <pre><code>##  lag Autocorrelation D-W Statistic p-value
@@ -667,11 +667,11 @@ simDW &lt;- apply(E, 2, function(e) (sum((e[2:length(e)] - e[1:(length(e) - 1)])
 ##    3     0.313027183     1.3590661   0.000
 ##    4     0.223506797     1.5238155   0.000
 ##    5     0.181083528     1.6062779   0.000
-##    6     0.136302455     1.6936098   0.008
-##    7     0.137885179     1.6827385   0.000
-##    8     0.114853193     1.7162447   0.010
-##    9     0.057464236     1.8200715   0.150
-##   10    -0.005901538     1.9274691   0.794
+##    6     0.136302455     1.6936098   0.014
+##    7     0.137885179     1.6827385   0.006
+##    8     0.114853193     1.7162447   0.026
+##    9     0.057464236     1.8200715   0.168
+##   10    -0.005901538     1.9274691   0.762
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <p>We see that DW tests have zero p-value up to lag 4. This means that we could be dealing with an AR process of order 4 or higher.</p>
 </div>
@@ -2325,6 +2325,11 @@ better_than</code></pre>
 ## 0.05810241</code></pre>
 <p>for the non-studentized version. Another possible evaluation of all the evaluated models is sorting them according to their <span class="math inline">\(BIC\)</span>:</p>
 <pre><code>##                       model RMSE(1)      BIC
+## 7  SARIMA(1,0,0)(0,1,1)[45] 1.37871  968.084
+## 8  SARIMA(1,0,1)(0,1,1)[45] 1.38929  971.292
+## 9  SARIMA(2,0,0)(0,1,1)[45] 1.38794  971.541
+## 10 SARIMA(2,1,1)(0,1,1)[45] 1.38807   976.85
+## 11 SARIMA(0,1,2)(0,1,1)[45] 1.44215  983.596
 ## 12 SARIMA(1,0,0)(0,1,1)[22] 1.20944 1034.493
 ## 13         ARFIMA(1,0.04,0) 1.29089 1050.358
 ## 19                ARMA(1,0) 1.29222 1051.252
@@ -2342,12 +2347,7 @@ better_than</code></pre>
 ## 5              ARIMA(2,1,3)  1.3078 1059.956
 ## 6              ARIMA(3,1,2) 1.30797 1060.043
 ## 17         ARFIMA(0,0.16,3) 1.29588 1061.227
-## 18            ARFIMA(2,0,2) 1.27844 1064.948
-## 7  SARIMA(1,0,0)(0,1,1)[45] 1.37871  968.084
-## 8  SARIMA(1,0,1)(0,1,1)[45] 1.38929  971.292
-## 9  SARIMA(2,0,0)(0,1,1)[45] 1.38794  971.541
-## 10 SARIMA(2,1,1)(0,1,1)[45] 1.38807   976.85
-## 11 SARIMA(0,1,2)(0,1,1)[45] 1.44215  983.596</code></pre>
+## 18            ARFIMA(2,0,2) 1.27844 1064.948</code></pre>
 <p>Although dubious in the relevance of its 45-day period, the result featuring a list of top 5 SARIMA models with the lowest <span class="math inline">\(RMSE\)</span> also seems to correlate with the top 5 models with the lowerst <span class="math inline">\(BIC\)</span>:</p>
 <pre><code>##                       model RMSE(1)      BIC
 ## 12 SARIMA(1,0,0)(0,1,1)[22] 1.20944 1034.493
@@ -2355,12 +2355,12 @@ better_than</code></pre>
 ## 23                ARMA(1,3) 1.28197 1058.852
 ## 20                ARMA(1,2) 1.28199 1056.256
 ## 1              ARIMA(1,1,1) 1.28835 1055.055</code></pre>
-<pre><code>##                       model RMSE(1)      BIC
-## 12 SARIMA(1,0,0)(0,1,1)[22] 1.20944 1034.493
-## 13         ARFIMA(1,0.04,0) 1.29089 1050.358
-## 19                ARMA(1,0) 1.29222 1051.252
-## 14         ARFIMA(0,0.33,1)   1.298 1053.832
-## 15            ARFIMA(2,0,0) 1.29457 1054.535</code></pre>
+<pre><code>##                       model RMSE(1)     BIC
+## 7  SARIMA(1,0,0)(0,1,1)[45] 1.37871 968.084
+## 8  SARIMA(1,0,1)(0,1,1)[45] 1.38929 971.292
+## 9  SARIMA(2,0,0)(0,1,1)[45] 1.38794 971.541
+## 10 SARIMA(2,1,1)(0,1,1)[45] 1.38807  976.85
+## 11 SARIMA(0,1,2)(0,1,1)[45] 1.44215 983.596</code></pre>
 <p>Thus quantitatively, SARIMA models seem to outcompete the remaining categories (in <span class="math inline">\(RMSE\)</span> and <span class="math inline">\(BIC\)</span>) even though mostly ARMA and some ARIMA and ARFIMA models are the reasonable choice.</p>
 </div>
 </div>
