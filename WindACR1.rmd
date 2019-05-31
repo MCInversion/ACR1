@@ -148,7 +148,7 @@ for (month in 1:12) {
   to = ifelse(month == 12, n, to + mdays[month])
   seg = from:to
   plot(x=1:length(seg), y=temp$T[seg], type="l",
-       main=paste("12:00 Temp. in ", months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[°C]", lwd=2, lty=1.5)
+       main=paste("Avg. Daily Temp. in ", months[month]), sub=paste("from day", from, " to ", to), xlab="[day]", ylab="T[°C]", lwd=2, lty=1.5)
   from = to + 1
 }
 ```
@@ -1684,7 +1684,7 @@ DieboldMarianoMatrix
 pvalueMatrix
 ```
 
-We observe that there are no significant differences between models. Perhaps the 6th model seems to have the most significantly different predictive abilities from 3rd and 5th model. Significant differences appear only as we increase the dimension of the `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities:
+We observe that there are no significant differences between models. Perhaps the 6th model seems to have the most significantly different predictive abilities from 3rd and 5th model. Significant differences appear only as we increase the dimension of the `DieboldMarianoMatrix` to 17 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities:
 
 ```{r}
 better_than <- list()
@@ -1713,7 +1713,9 @@ Thus according to Diebold-Mariano test, only $ARIMA(2, 1, 1)$ (which is second i
 ### 6.4 Conclusions
   
 As the matter of fact, different types of models of integrated processes capture different properties of the time series. 
-While ARIMA and ARFIMA models seem to account for much of the non-stationarity in the original time series, they have larger $BIC$ than their ARMA counterparts on the systematic residuals:
+We decided not to use SARIMA models since the data does not contain at least two seasons, and also we refrained from using (G)ARCH type models since the residuals of `model.sCos` are conditionally homoskedastic and there is no regression to BP-test against in the case of the original time series temperature data.
+
+  While ARIMA and ARFIMA models seem to account for much of the non-stationarity in the original time series, they have larger $BIC$ than their ARMA counterparts on the systematic residuals:
   
 ```{r, echo=F}
 bic <- as.numeric(paste(lowestRMSE1[,4]))
@@ -1866,7 +1868,7 @@ lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
 
 ### 7.3 Single and Multi-Step Prediction Estimates
 
-Each state variable is a 1-step prediction of the previous values. This makes 1-step predictions relatively straight-forward, as observed on eval parts of chosen models in the beginning of section 7.1. To predict $h > 1$ steps ahead we make use of the state space equations to accumulate the levels (or additional ES parameters):
+Each state variable is a 1-step prediction of the previous values. This makes 1-step predictions relatively straight-forward, as observed on eval parts of chosen models in the beginning of section 7.1. To predict $h > 1$ steps ahead we make use of the state space equations to accumulate the levels as well as additional ES parameters:
 
 ```{r}
 
@@ -1936,3 +1938,40 @@ legend("topright", legend=c(paste("ETS(A,A,N), beta = ", 0.1, ", phi = ", 0.98, 
 ```
 
 The multiplicative version of this method seems to work for $\beta \ll \phi$, as the cumulative sum in the exponent causes the predictions to diverge for trend values $b_n > 1$.
+
+ When $\beta = 0$ the ETS model becomes a simple level smoothing model, leading to a constant long-term prediction. Increasing $\beta$ to values slightly above zero leads to a prediction with an overdamped trend. The trend becomes more apparent as we increase $\beta$ up to a point where it is no longer overdamped by $\phi$, as we can see in the plot below:
+
+```{r changingBetaParam, fig.width=10, fig.height=5}
+suppressMessages(pkgTest("aTSA"))
+optim_beta <- 0.01; optim_RMSE <- Inf
+plot(x, type="l", xlim=c(nt - h, nt + h), main=paste(h,"-step predictions \\w increasing trend params", sep=""), xlab="day", ylab="[°C]", ylim=c(4.5, 20))
+mtext(paste("alpha = ",alpha, ", beta: 0.01 to 0.4 \\w step: 0.1" ,sep=""))
+for (beta in seq(from=0.01, to=0.4, by=0.01)) {
+  h2p <- Holt(x, alpha=alpha, beta=beta, lead = h, damped=T, plot=F)$pred
+  rmse <- sqrt(mean((temp_eval$T - h2p)^2))
+  if ( rmse < optim_RMSE) {
+    optim_RMSE <- rmse
+    optim_beta <- beta
+  }
+  lines(x=nt:(nt + 1), y=c(x[nt], h2p[1]), col=hsv((32 - 28 * beta) / 40, v=0.8), lwd=2, lty=2)
+  lines(x=(nt + 1):(nt + h), y=h2p, col=hsv((32 - 28 * beta) / 40, v=0.8), lwd=2)
+}
+legend("bottomleft", legend=c("beta = 0.01", "beta = 0.4"), col=c(hsv((32 - 28 * 0.01) / 40, v=0.8), hsv((32 - 28 * 0.4) / 40, v=0.8)), lwd=2, cex=0.8)
+
+```
+
+Naturally, we want to choose $\beta$ such that the damped trend predictions describe the evaluation part most accurately.
+
+```{r longTermBetaPred, fig.width=10, fig.height=5}
+h2pred <- Holt(x, alpha=alpha, beta=optim_beta, lead = h, damped=T, plot=F)$pred
+plot(x, type="l", xlim=c(nt - h, nt + h), main=paste("Damped 2-parametric ",h,"-step prediction", sep=""), xlab="day", ylab="[°C]")
+mtext(paste("alpha = ",alpha, ", beta = ", optim_beta ,sep=""))
+  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+  lines(x=nt:(nt + 1), y=c(x[nt], h2pred[1]), col="blue2", lwd=2, lty=2)
+  lines(x=(nt + 1):(nt + h), y=h2pred, col="blue2", lwd=2)
+  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "data"),
+         col=c("blue2","red"), lty=c(1, NA), lwd=2 , cex=0.8, pch=c(NA, 20))
+```
+
+### 7.4 ETS Model Comparison (Conclusion)
+
