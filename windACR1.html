@@ -160,6 +160,7 @@ $(document).ready(function () {
 <li><a href="#single-and-multi-step-prediction-estimates">7.3 Single and Multi-Step Prediction Estimates</a></li>
 <li><a href="#ets-model-comparison-conclusion">7.4 ETS Model Comparison (Conclusion)</a></li>
 </ul></li>
+<li><a href="#discussion">Discussion</a></li>
 </ul></li>
 </ul>
 </div>
@@ -405,11 +406,11 @@ $(document).ready(function () {
 ##    3     0.313027183     1.3590661   0.000
 ##    4     0.223506797     1.5238155   0.000
 ##    5     0.181083528     1.6062779   0.000
-##    6     0.136302455     1.6936098   0.006
-##    7     0.137885179     1.6827385   0.004
-##    8     0.114853193     1.7162447   0.020
-##    9     0.057464236     1.8200715   0.186
-##   10    -0.005901538     1.9274691   0.728
+##    6     0.136302455     1.6936098   0.008
+##    7     0.137885179     1.6827385   0.000
+##    8     0.114853193     1.7162447   0.016
+##    9     0.057464236     1.8200715   0.178
+##   10    -0.005901538     1.9274691   0.806
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <pre><code>##  lag Autocorrelation D-W Statistic p-value
 ##    1     0.675550335     0.6474686   0.000
@@ -418,22 +419,22 @@ $(document).ready(function () {
 ##    4     0.223506797     1.5238155   0.000
 ##    5     0.181083528     1.6062779   0.000
 ##    6     0.136302455     1.6936098   0.008
-##    7     0.137885179     1.6827385   0.006
-##    8     0.114853193     1.7162447   0.012
+##    7     0.137885179     1.6827385   0.010
+##    8     0.114853193     1.7162447   0.030
 ##    9     0.057464236     1.8200715   0.188
-##   10    -0.005901538     1.9274691   0.698
+##   10    -0.005901538     1.9274691   0.742
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <pre><code>##  lag Autocorrelation D-W Statistic p-value
 ##    1     0.675550335     0.6474686   0.000
 ##    2     0.433682011     1.1245195   0.000
 ##    3     0.313027183     1.3590661   0.000
 ##    4     0.223506797     1.5238155   0.000
-##    5     0.181083528     1.6062779   0.000
-##    6     0.136302455     1.6936098   0.008
-##    7     0.137885179     1.6827385   0.006
-##    8     0.114853193     1.7162447   0.008
-##    9     0.057464236     1.8200715   0.158
-##   10    -0.005901538     1.9274691   0.716
+##    5     0.181083528     1.6062779   0.002
+##    6     0.136302455     1.6936098   0.002
+##    7     0.137885179     1.6827385   0.008
+##    8     0.114853193     1.7162447   0.024
+##    9     0.057464236     1.8200715   0.162
+##   10    -0.005901538     1.9274691   0.742
 ##  Alternative hypothesis: rho[lag] != 0</code></pre>
 <p>We see that DW tests have zero p-value up to lag 4. This means that we could be dealing with an AR process of order 4 or higher.</p>
 </div>
@@ -1095,8 +1096,60 @@ sampleSizes &lt;- c(25, 50, 100, 250, 500, 100000) # sample size</code></pre>
 ## DM = -2.1556, Forecast horizon = 1, Loss function power = 2,
 ## p-value = 0.03461
 ## alternative hypothesis: two.sided</code></pre>
-<p>which suggests significantly better predictive properties of the simple <span class="math inline">\(ETS(A,N,N)\)</span> with <span class="math inline">\(\alpha = 0.747\)</span>.</p>
+<p>which suggests significantly better predictive properties of the simple <span class="math inline">\(ETS(A,N,N)\)</span> with <span class="math inline">\(\alpha = 0.747\)</span>. The RMSE’s of the above models are:</p>
+<pre><code>## [1] 0.220368</code></pre>
+<p>and</p>
+<pre><code>## [1] 0.2056627</code></pre>
 </div>
+</div>
+<div id="discussion" class="section level2">
+<h2>Discussion</h2>
+<p>We have evaluated daily averaged temperature measurements taken over year 2015 on a wind farm with the basic approaches of time series analysis, namely: decomposition, modeling residuals as a stationary (ARMA) process and introduced integrated processes and exponential smoothing (ETS) as well.</p>
+<p>The data contains a clear seasonal component with a 365-day period, but due to the length of the sample being shorter than the period itself we were unable to model the data using seasonal integrated models which require the data to contain at least two periods. We were left with the following approaches:</p>
+<ol style="list-style-type: lower-alpha">
+<li><p>Decomposition and ARMA for residuals: <span class="math inline">\(\hat{x}_t = \hat{x}_t^{Seas} + \hat{x}_t^{ARMA} + \varepsilon_t\)</span> <br /></p></li>
+<li><p>Modeling with ARIMA and ARFIMA models: $_t = _t^I + _t $ where <span class="math inline">\(I \in \{ARIMA, ARFIMA\}\)</span><br /></p></li>
+<li><p>Using exponential smoothing: <span class="math inline">\(\hat{x}_t = \hat{x}_{t}^{ETS} + \varepsilon_t\)</span> <br /></p></li>
+</ol>
+<p>Technique (a) yields the best results since it clearly addresses the seasonality of the data and then models the residuals as stationary ARMA processes:</p>
+<pre><code>##               model RMSE(1)      BIC
+## 13        ARMA(1,0) 1.29222 1051.252
+## 14        ARMA(1,2) 1.28199 1056.256
+## 15        ARMA(1,1) 1.29477 1056.484
+## 16        ARMA(2,1) 1.31172 1057.184
+## 17        ARMA(1,3) 1.28197 1058.852
+## 7  ARFIMA(0,0.49,1) 1.28419 1069.949</code></pre>
+<p>Yet compared with ETS models in (c), more precisely <span class="math inline">\(ETS(A,N,N),\alpha=0.747\)</span> with <span class="math inline">\(RMSE(1) = 0.220368\)</span> they do not posses significantly better predictive abilites than the best ARMA model, as shown through the DM-test:</p>
+<pre><code>## 
+##  Diebold-Mariano Test
+## 
+## data:  e_1e_arma
+## DM = 0.63926, Forecast horizon = 1, Loss function power = 2,
+## p-value = 0.5248
+## alternative hypothesis: two.sided</code></pre>
+<p>Approach (b) was only used as an exercise with no significant difference in predictive abilities (merely between two specific ARIMA models). The residuals <span class="math inline">\(\varepsilon_t\)</span> in approach (a) can be considered random even though Diagnostic tests such as the Jarque-Bera test rejected their normality. The same can be applied on the residuals of approach (c):</p>
+<pre class="r"><code>tseries::jarque.bera.test(e_1) # normality of ETS resids</code></pre>
+<pre><code>## 
+##  Jarque Bera Test
+## 
+## data:  e_1
+## X-squared = 0.80637, df = 2, p-value = 0.6682</code></pre>
+<pre class="r"><code>randtests::runs.test(e_1) # randomness of ETS resids</code></pre>
+<pre><code>## 
+##  Runs Test
+## 
+## data:  e_1
+## statistic = -0.2408, runs = 35, n1 = 35, n2 = 35, n = 70, p-value
+## = 0.8097
+## alternative hypothesis: nonrandomness</code></pre>
+<pre class="r"><code>randtests::runs.test(e_arma) # randomness of ARMA resids</code></pre>
+<pre><code>## 
+##  Runs Test
+## 
+## data:  e_arma
+## statistic = -1.204, runs = 31, n1 = 35, n2 = 35, n = 70, p-value =
+## 0.2286
+## alternative hypothesis: nonrandomness</code></pre>
 </div>
 </div>
 

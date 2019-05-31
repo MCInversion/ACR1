@@ -2083,8 +2083,48 @@ e_2 <- holt_damped_whole$estimate[(nt + 1):length(X)] - X[(nt + 1):length(X)]
 dm.test(e_1, e_2)
 ```
 
-which suggests significantly better predictive properties of the simple $ETS(A,N,N)$ with $\alpha = 0.747$.
+which suggests significantly better predictive properties of the simple $ETS(A,N,N)$ with $\alpha = 0.747$. The RMSE's of the above models are:
+
+```{r}
+( rmse_1 <- sqrt(mean(e_1)) )
+```
+and 
+```{r}
+( rmse_2 <- sqrt(mean(e_2)) )
+```
 
 ## Discussion
 
-We have evaluated 
+We have evaluated daily averaged temperature measurements taken over year 2015 on a wind farm with the basic approaches of time series analysis, namely: decomposition, modeling residuals as a stationary (ARMA) process and introduced integrated processes and exponential smoothing (ETS) as well.
+
+The data contains a clear seasonal component with a 365-day period, but due to the length of the sample being shorter than the period itself we were unable to model the data using seasonal integrated models which require the data to contain at least two periods. We were left with the following approaches:
+
+(a) Decomposition and ARMA for residuals: $\hat{x}_t = \hat{x}_t^{Seas} + \hat{x}_t^{ARMA} + \varepsilon_t$ <br/>
+
+(b) Modeling with ARIMA and ARFIMA models: $\hat{x}_t = \hat{x}_t^I + \varepsilon_t $ where $I \in \{ARIMA, ARFIMA\}$<br/>
+
+(c) Using exponential smoothing: $\hat{x}_t = \hat{x}_{t}^{ETS} + \varepsilon_t$ <br/>
+
+Technique (a) yields the best results since it clearly addresses the seasonality of the data and then models the residuals as stationary ARMA processes:
+
+```{r}
+head(lowestBIC)
+```
+
+Yet compared with ETS models in (c), more precisely $ETS(A,N,N),\alpha=0.747$ with $RMSE(1) = 0.220368$ they do not posses significantly better predictive abilites than the best ARMA model, as shown through the DM-test:
+
+```{r}
+e_arma <- (temp_eval$Tres - eval.predictions[[1]])
+dm.test(e_1, e_arma)
+```
+
+Approach (b) was only used as an exercise with no significant difference in predictive abilities (merely between two specific ARIMA models).
+The residuals $\varepsilon_t$ in approach (a) can be considered random even though Diagnostic tests such as the Jarque-Bera test rejected their normality. The same can be applied on the residuals of approach (c):
+
+```{r, echo=T}
+tseries::jarque.bera.test(e_1) # normality of ETS resids
+
+randtests::runs.test(e_1) # randomness of ETS resids
+
+randtests::runs.test(e_arma) # randomness of ARMA resids
+```
