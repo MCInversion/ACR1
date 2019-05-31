@@ -8,7 +8,11 @@ output:
     theme: united
 ---
 
-```{r, echo=F}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
 pkgTest <- function(x) {
   if (!require(x,character.only = TRUE)) {
     install.packages(x,dep=TRUE)
@@ -24,6 +28,8 @@ pkgTest <- function(x) {
 The chosen source of data is a wind farm located in the North Sea (with coords: 54.01433°NL, 6.587667°EL) denoted as LES (1y 2015-01-01 2015-12-31 cfsr) which comes from website http://www.vortexfdc.com/, specifically designed to provide its
   users with weather data for potential wind farm sites. This specific dataset has been obtained (for free) from year 2015, and contains a variety of measurements, ranging from wind velocity magnitude, through the wind direction angle, temperature up to dimensionless characteristics like  the Richardson number "Ri" which corresponds to the ratio of buoyancy over shear flow.
 In the first 7 parts of this project, I focus on the analysis of a single variable, namely temperature T [°C]. Since the dataset consist of over 47 000 observations of 11 different variables, and thus might be difficult to visualize, I've chosen to include only the average temperature measurements for each day.
+
+![Location of the wind farm](LES.jpg)
  
  ---------------------------------------------------------------------------------------
 
@@ -186,7 +192,7 @@ model.sCos <- lm(T ~ cos(2*pi*temp$time/seasons[1]) + sin(2*pi*temp$time/seasons
 summary(model.sCos)
 ```
 
-The summary of the regression model implies that the annual period is significant.
+The summary of the regression model shows that amplitudes $C_1 = -4.2990$, $C_2 = -3.5194$, and the intercept: $C_0 = 9.3188$ are significant.
 And now we can plot the residues after extracting the seasonal components
 
 ```{r residPlot1, fig.width=10, fig.height=4}
@@ -213,7 +219,21 @@ box()
 ```
 
 We can see that the residuals after extracting the seasonal components still have not 
-lost some of their periodic behavior. Taking a look at the residual ACF and PACF we see 
+lost some of their periodic behavior.
+    
+  The resulting regression equation takes the form: <br/>
+  
+  $\hat{x}_t = \hat{C}_0 + \hat{C}_1 \cos{(2 \pi t / 365)} + \hat{C}_2 \sin{(2 \pi t / 365)} + \hat{\varepsilon}_t$ <br/>
+  
+  $\hat{x}_t = 9.3188 - 4.2990 \cos{(2 \pi t / 365)} - 3.5194 \sin{(2 \pi t / 365)} + \hat{\varepsilon}_t$ <br/>
+
+The residuals $\varepsilon_t$ with standard error $\sigma_{\hat{\varepsilon_t}} = 2.072$ may or may not be entirely random. We will have to determine this in the following sections.
+
+  We can also include the standard deviations into the coefficients: <br/>
+  
+  $\hat{x}_t = (9.3188 \pm 0.1116) + (-4.2990 \pm 0.1618) \cos{(2 \pi t / 365)} + (-3.5194 \pm 0.1536) \sin{(2 \pi t / 365)}$ <br/>
+
+Taking a look at the residual ACF and PACF we see 
 that non-zero correlation extends from lag of approximately 50 days.
 
 ```{r ACFPlot2, fig.width=9, fig.height=4}
@@ -433,7 +453,7 @@ As we can clearly see, the residues still have a hidden oscillatory component wi
 
 The null hypothesis of the D-W test states that the residues of a time series after a least squares regression are uncorrelated, which is put against the alternative hypothesis: that the residuals follow a 1st order autoregressive (AR) process (see section 5.). 
 
-We can either use the inbuilt function in the "car" package:
+We can either use the inbuilt function in the `car` package:
 
 ```{r}
 suppressMessages(pkgTest("car"))
@@ -568,7 +588,7 @@ So as it appears, for a 5% confidence interval the residues still contain a tren
 
 #### 3.2.4 Spearman Rho Test
 
-Another non-parametric test for the presence of a trend using concordant/discordant pairs of values can be implemented as:
+Another non-parametric test for the presence of a trend using concordant/discordant pairs of values:
 
 ```{r}
 #order the unique values in an increasing order
@@ -600,7 +620,7 @@ if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) {
 }
 ```
 
-And using the inbuilt `cor.test`:
+using the inbuilt `cor.test`:
 
 ```{r}
 # our rho:
@@ -650,13 +670,16 @@ if (test_stat <= qnorm(alpha) || test_stat >= qnorm(1 - alpha)) {
   message(paste("test_stat = ",test_stat," alpha = ", alpha,
                 " ::: Null Hypothesis! No periodic components detected."))
 }
+```
+
+The p-value of the test can be evaluated for three different hypotheses:
+
+```{r, echo=T, eval=F}
 
 ( p_value <- pnorm(test_stat) ) # positive serial correlation
 ( p_value <- 2*min(p_value, 1 - p_value)) # (two-sided) non-randomness
 ( p_value <- 1 - p_value ) # negative serial correlation
 ```
-
-And via the inbuilt function from `randtests`:
 
 ```{r}
 randtests::turning.point.test(temp_test$Tres, alternative="left.sided")
@@ -664,8 +687,6 @@ randtests::turning.point.test(temp_test$Tres, alternative="two.sided")
 randtests::turning.point.test(temp_test$Tres, alternative="right.sided")
 ```
 
-we, apparently, obtain the same result. 
- 
 #### 3.2.6 Median Test
 
 This is another non-parametric test for the presene of periodic components which essentially divides the sample values into distinct groups each of which corresponds to a group of values that are unilaterally above or below the sample median, meaning that if the $i$-th value and its predecessors lie above the median, and the $(i+1)$-th value lies below, for instance, the $(i+1)$-th value is a member of a new group of values which lie below the sample median.
@@ -723,7 +744,7 @@ randtests::runs.test(U)
 # signmedian.test(temp_test$Tres, alternative="less")
 ```
 
-The median test implies randomness of the residual time series, yet its results are irrelevant for group count $m \leq 100$. The result of the Durbin-Watson Test implies that the residual time series may be a trajectory of an $AR(3)$
+The median test implies randomness of the residual time series, yet its results are irrelevant for group count $m \leq 100$. The result of the Durbin-Watson Test implies that the residual time series may be a trajectory of an $AR(4)$
 (auto-regressive) process, and the residual ACF, of course, shows non-zero correlation for multiple lags. The signed-rank
 test "almost" implies that the residues do not have a trend (more specifically, for $\alpha = 0.1$), and the following
 Spearman rho test does so as well. The presence of a trend may be caused by cutting off the tail of the annual series.
@@ -785,7 +806,7 @@ According to the Augmented Dickey-Fuller tests the residuals the stationarity hy
  
 First, we need to set the maximum values for lag parameters based on the significant lags in residual ACF and PACF. It will be easier to do so in a combined plot:
 
-```{r plot03, echo=T, fig.width=8, fig.height=4}
+```{r plot03, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
 acf(temp_test$Tres, ylab="(P)ACF", lag.max=100, main="Comparison of Residual ACF & PACF")
 tmp <- pacf(temp_test$Tres, plot=F, lag.max=100)
@@ -808,7 +829,7 @@ model$ar.yw <- ar(temp_test$Tres, order.max=kmax)
 
 Plotting the differences we notice that the highest drop in $\Delta AIC$ comes after $L=1$ and then a much smaller drop follows after `L=15` and `L=40` after that. We can determine the maximum order $k$ from the lags where this drop in $\Delta AIC$ occurs. An alternative to this approach is determining the AR order $p$ from the residual variances:
 
-```{r plot05, echo=T, fig.width=9.5, fig.height=4}
+```{r plot05, fig.width=9.5, fig.height=4}
 par(mfrow=c(1,2))
 plot(0:(length(model$ar.yw$aic)-1), xlab="p", model$ar.yw$aic, ylab="dAIC", main="Differences in AIC")
 rbind(coef=model$ar.yw$ar, se=sqrt(diag(model$ar.yw$asy.var.coef))) 
@@ -818,8 +839,12 @@ plot(tmp, xlab="p", ylab="sigma^2", main="Residual variances")
 
 The plot suggests that the highest order of the AR process should be around `p = 20`. The maximum AR order can also be determined via a recursive Lewinson-Durbin algorithm. For the sake of saving computation time, however, we choose the following maximum order parameters:
 
-```{r}    
+```{r, echo=T}    
 kmax = 20; pmax = 10; qmax = 10;
+
+```
+
+```{r}
 
 #LongAR method implementation:
 LongAR = function(tser, k, p, q) {
@@ -867,7 +892,7 @@ for (k in pmax:kmax) {
   }
 }
 
-( k <- korder )
+k <- korder
 
 models.arma <- list() 
 
@@ -995,7 +1020,7 @@ newBestArma[[5,3]]$coefficients
 
 ### 4.3. Plotting the Resulting Models With their Residuals
 
-```{r plot11csaa, echo=T, include=T, fig.width=9, fig.height=6}
+```{r plot11csaa, include=T, fig.width=9, fig.height=6}
 par(mfrow=c(2,2))
 
 for (i in 1:5) {
@@ -1007,7 +1032,7 @@ for (i in 1:5) {
 
 ### 4.4. Plotting the Resulting Models In the Original Time Series
 
-```{r plot1212, echo=T, fig.width=8, fig.height=4}
+```{r plot1212, fig.width=8, fig.height=4}
 par(mfrow=c(1,1))
 n <- length(temp_test$Tres)
 for(i in 1:5) {
@@ -1025,10 +1050,36 @@ for(i in 1:5) {
 
 The Hannan-Rissanen procedure with maximum orders: `kmax = 20`, `pmax = 10`, and `qmax = 10`, determined the optimal ARMA models to be: 
 
-```{r, echo=F}
+```{r}
 row.names(newBestArma)
 ```
-Combining the systematic components, i.e.: the seasonal and cyclical components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part of the original time series. The evaluation part will be used in the following section where we will test the given models and carry out predictions.
+Combining the systematic components, i.e.: the seasonal and cyclical components, with the linear regression of a given ARMA model we have found 5 most accurate linear models for the test part of the original time series. <br/>
+  We can write the resulting regression of an ARMA model: <br/>
+  
+  $\hat{x}_t = \hat{\varphi}_0 + \hat{\varphi}_1 x_{t - 1} + ...  + \hat{\varphi}_p x_{t - p} + \hat{\theta}_1 z_{t - 1} + ... + \hat{\theta}_{t - q} z_{t - q} + \hat{\varepsilon}_t$ <br/>
+  
+  which corresponds to:
+  
+  $\hat{x}_t = \hat{\varphi}_0 + \hat{\varphi}_1 x_{t - 1} + \hat{\varepsilon}_t$ <br/>
+  
+  $\hat{x}_t = -0.02785883 + 0.64562578 x_{t - 1} + \hat{\varepsilon}_t$, <br/> $\sigma_{\hat{\varepsilon}_t}^2 = 2.475145$ <br/>
+  
+  in case of the very first $ARMA(1,0)$ model, and:
+  
+  $\hat{x}_t = \hat{\varphi}_0 + \hat{\varphi}_1 x_{t - 1} + \hat{\theta}_1 z_{t - 1} + \hat{\theta}_2 z_{t - 2} + \hat{\varepsilon}_t$ <br/>
+  
+  $\hat{x}_t = -0.02631937 + 0.68694854 x_{t - 1}  -0.01196797 z_{t - 1} -0.08960355 z_{t - 2} + \hat{\varepsilon}_t + \hat{\varepsilon}_t$, <br/> $\sigma_{\hat{\varepsilon}_t}^2 = 2.444121$ <br/>
+  
+  for the second $ARMA(1,2)$.
+  
+  For demonstration we will combine the seasonal fit $\hat{x}_t^{S} = \hat{C}_0 + \hat{C}_1 \cos{(2 \pi t / 365)} + \hat{C}_2 \sin{(2 \pi t / 365)}$ with the ARMA fit $\hat{x}_t$ of the first model:
+  
+
+  $\hat{x}_t^{S} + \hat{x}_t = \hat{\psi}_0 + \hat{C}_1 \cos{(2 \pi t / 365)} + \hat{C}_2 \sin{(2 \pi t / 365)} + \hat{\varphi}_1 x_{t - 1} + \hat{\varepsilon}_t$,<br/> $\hat{\psi}_0 = \hat{C}_0 + \hat{\varphi}_0$
+  
+  $\hat{x}_t^{S} + \hat{x}_t = 9.290926 - 4.2990 \cos{(2 \pi t / 365)} - 3.5194 \sin{(2 \pi t / 365)} + 0.64562578 x_{t - 1} + \hat{\varepsilon}_t$,<br/> $\sigma_{\hat{\varepsilon}_t}^2 = 2.475145$  <br/>
+
+The evaluation part will be used in the following section where we will test the given models and carry out predictions.
  
 ## 5. ARMA Model Diagnostics and Predictions
  
@@ -1041,7 +1092,7 @@ Prior to carrying out (single-step and multiple step) predictions, we need to te
  
 The Autocorrelation function (ACF) shows a reasonably clear image of the dependency of individual random variables with respect to time lag. This means that if the ACF has non-zero values for some lags greater than zero, then it is likely that the residues after removing the ARMA regression's fitted values still contain some systematic or ARMA component. To find out we test for a null hypothesis: $ACF(k) = 0$ for all $k > 0$, against an alternative $ACF(k) \neq 0$ for some $k > 0$.
 
-```{r plot1zaa, echo=T, fig.width=9, fig.height=4}
+```{r plot1zaa, fig.width=9, fig.height=4}
 ZeroACF = function (x, zeroValue) {
   x = ifelse (abs(x) < zeroValue, 0, x)
 }
@@ -1088,7 +1139,7 @@ we see the exact lags for which the ACF exceeds the zero-value.
 If a given ARMA model describes the time series well enough, the residues should behave as if they were generated by a stochastic process with values at individual times $t$ being the realizations of independent identically distributed random variables. For sufficiently large number of time steps, the residues are assumed to be the results of a normally distributed random variable. 
  To test that, we use the, so called, Jarque-Bera test:
 
-```{r JBTest, echo=T}
+```{r JBTest}
 JBToutput <- list()
 
 for (i in 1:5) {
@@ -1111,7 +1162,7 @@ As it appears, the normality of the residues of all top 5 ARMA models is accepte
  
 The term "heteroskedasticity" of a time series describes the tendency of its variance to change with time. A time series whose variance (up to a given time) remains the same are called "homoskedastic". The following Breusch-Pagan test assesses the homoskedasticity of a given model:
 
-```{r Skedast, echo=T}
+```{r Skedast}
 alpha = 0.05
 SkedtestResults <- list()
 suppressMessages(pkgTest("lmtest"))
@@ -1136,10 +1187,10 @@ Thus on the 5% significance level we accept the null hypothesis for all models, 
  
 Now we make use of the evaluation part of the time series which we have separated from the original series earlier in section 4. Since the `dynlm` model we used earlier does not support `predict()` function from the `forecast` library we use equivalent $ARIMA(p,0,q)$ models instead of $ARMA(p,q)$, which are returned by an inbuilt function `arima()`, the result of which is an object that can be processed by the `predict()` call.
 
-```{r predictplot1, echo=TRUE, fig.width=9, fig.height=4}
+```{r predictplot1, fig.width=9, fig.height=4}
 ( neval <- length(temp_eval$Tres) )
 
-par(mfrow=c(1,1))
+par(mfrow=c(1,2))
 suppressMessages(pkgTest("forecast"))
 eval.predictions <- list()
 merrors <- list()
@@ -1165,7 +1216,7 @@ for (i in 1:5) {
 }
 ```
 
-We have also computed Root Mean Square Errors for each model, with the smallest one being:
+We have also computed Root Mean Square Errors for each model.
 
 ```{r}
 minE <- which.min(merrors)
@@ -1188,13 +1239,13 @@ for(i in 1:length(eval.predictions)) {
 }
 DieboldMarianoMatrix
 
-pvalueMatrix
+# pvalueMatrix
 ```
 
 As the results of the Diebold-Mariano test suggest, no model has significantly better predictive abilities on a 5% significance level.
 A quantitative characteristic of predictive ability is the Root Mean Square Error (RMSE). Here we can see how the predictions match the observed values from the evaluation part of the time series:
 
-```{r predictPlot2, echo=T, fig.width=9, fig.height=6}
+```{r predictPlot2, fig.width=9, fig.height=6}
 par(mfrow=c(1,1));
 o <- unlist(strsplit(orders[[minE]],",")); p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]])
 n <- length(model.sCos$fitted.values)
@@ -1220,7 +1271,7 @@ Predicting one step ahead of data can be done naiively by fitting and ARMA model
 
 In this section we compare the multiple-step predictions (with the length of the evaluation part) for the top 5 ARMA models:
 
-```{r multipredictPlot, echo=T, fig.width=12, fig.height=4}
+```{r multipredictPlot, fig.width=12, fig.height=4}
 require(forecast)
 par(mfrow=c(1,1))
 ne <- length(temp_eval$time)
@@ -1258,7 +1309,7 @@ for (i in 1:5) {
 
 Now even though we have no validation for our models for $t > n$ where $n$ is the length of the time series, we can use our models to make a forecast for another year (more precisely, year 2016):
 
-```{r futurePredictPlot, echo=T, fig.width=12, fig.height=4}
+```{r futurePredictPlot, fig.width=12, fig.height=4}
   i <- 1
   o <- unlist(strsplit(orders[[i]],","));
   p <- as.numeric(o[[1]]); q <- as.numeric(o[[2]]);
@@ -1306,9 +1357,10 @@ xt1 <- x[1:m]
 tt <- 1:m
 reg <- lm(dx ~ xt1 + 1 + tt)
 reg.sum <- summary(reg)
+reg.sum$coefficients
 ```
 
-And after the regression of the difference time series we proceed to compute the $DF$-statistic from the `rho` parameter
+And after the regression of the difference time series we proceed to compute the $DF$-statistic from the `rho` parameter:
 
 ```{r}
 rho <- reg.sum$coefficients[2,1]
@@ -1319,9 +1371,12 @@ sigma_rho <- reg.sum$coefficients[2,2]
 The value has to be compared with the critical values for the `DF`-statistic, whose distribution is estimated via simulations
  for particular sample sizes:
 
-```{r}
+```{r, echo=T}
 critVals <- -c(3.60, 3.50, 3.45, 3.43, 3.42, 3.41) # for alpha = 0.05
 sampleSizes <- c(25, 50, 100, 250, 500, 100000) # sample size
+```
+
+```{r}
 
 ( critVal <- approx(sampleSizes, critVals, m, rule=2)$y )
 
@@ -1354,9 +1409,8 @@ names(DFi) <- c("DF")
 DFi
 ```
 
-The ADF method sets a default lag value to 
-
-```{r}
+```{r, eval=F}
+# The ADF method sets a default lag value to 
 ( k <- trunc((length(x)-1)^(1/3))  )
 
 adf.test(x)
@@ -1438,7 +1492,7 @@ kpss.test(x, null="Trend", lshort = F)
 The diagnostic tests carried out in the previous section suggest that the residuals `temp_test$Tres` are generated by a stationary stochastic process. 
   The `auto.arima` method from the `forecast` package searches through a multitude of combinations of parameters, just like we did in section 4 when searching for the best ARMA model:
   
-```{r}
+```{r, echo=T}
 auto.arima(x, ic = "bic")
 ```
 
@@ -1565,7 +1619,7 @@ legend("bottomleft", legend=c(plot_models,"data"),
        col=c(colors, "black"), lty=c(1, 1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, NA, 1))
 ```
 
-We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type  (ARIMA, SARIMA, ARFIMA), more specifically according to the root mean square error (RMSE) of 1-step predictions
+We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type.
  
 #### 6.3.1 ARIMA
 
@@ -1589,7 +1643,7 @@ for (i in 1:6) {
   xp_res <- temp_eval$T - xp
   rmse <- sqrt(mean(xp_res^2))
   rmse_h <- sqrt(mean((fc$mean - xp)^2))
-  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestArima[i, 6], 3))
+  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=rmse_h, BIC=round(bestArima[i, 6], 3))
   xp_resids[[name]] <- xp_res
 
   plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
@@ -1600,7 +1654,6 @@ for (i in 1:6) {
          col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
 }
 ```
-
 
 #### 6.3.2 ARFIMA
 
@@ -1655,13 +1708,7 @@ names(errors) <- c("model", "RMSE(1)", paste("RMSE(", ne, ")", sep=""), "BIC")
 # sort by RMSE(1)
 rmse1 <- errors[2]
 lowestRMSE1_resids <- xp_resids[order(rmse1),]
-lowestRMSE1 <- errors[order(rmse1),]
-```
-
-And the 5 models with the lowest RMSE are:
-
-```{r}
-head(lowestRMSE1, 5)
+( lowestRMSE1 <- errors[order(rmse1),] )
 ```
 
 And we can apply the DM test on first 6 models:
@@ -1717,7 +1764,7 @@ We decided not to use SARIMA models since the data does not contain at least two
 
   While ARIMA and ARFIMA models seem to account for much of the non-stationarity in the original time series, they have larger $BIC$ than their ARMA counterparts on the systematic residuals:
   
-```{r, echo=F}
+```{r}
 bic <- as.numeric(paste(lowestRMSE1[,4]))
 
 lowestBIC <- cbind(lowestRMSE1[order(bic), 1:2], lowestRMSE1[order(bic),4])
@@ -1725,7 +1772,10 @@ colnames(lowestBIC) <- c("model", "RMSE(1)", "BIC")
 lowestBIC
 ```
 
-The Diebold-Mariano test showed no significant difference in 1-step prediction property except for model $ARIMA(2, 1, 1)$, recognized as the best fit by `auto.arima` from `forecast` package.
+However, it should be noted that the value of $BIC$ in the context of ARMA type models was evaluated on the residuals of a seasonal systematic fit without taking the systematic coefficients into account as parameters, whereas $BIC$'s of ARIMA and ARFIMA were fitted on the original data. Nevertheless the validity of the integrated models remains rather dubious, since we know that average daily temperature will change in more-or-less identical annual cycles, and these models were only used on original data as an exercise.
+
+  The Diebold-Mariano test showed no significant difference in 1-step prediction property except for model $ARIMA(2, 1, 1)$, recognized as the best fit by `auto.arima` from `forecast` package.
+  
   Thus quantitatively, ARMA models on residuals seem to outcompete the remaining categories of integrated processes on original data.
 
 ## 7. Exponential Smoothing Methods
@@ -1800,7 +1850,7 @@ for(t in 2:(ne + 1)) {
 The errors $\epsilon_t^{Add} = x - \hat{x}_{t|t-1}$ and $\epsilon_t^{Mult} = \frac{x - \hat{x}_{t|t-1}}{\hat{x}_{t|t-1}}$ can be reduced to the formula we used for pointwise smoothing: $\hat{x}_{t|t} = \alpha x_t + (1 - \alpha) \hat{x}_{t|t-1}$.
 The model $AIC$ and $BIC$ are computed with respect to the total of two estimated parameters: initial state and $\alpha$.
 
-```{r simpleEtsEstim, fig.width=12, fig.height=5, echo=F}
+```{r simpleEtsEstim, fig.width=12, fig.height=5}
 sublab <- paste("RMSE = ", round(sqrt( sum( (x.hat0 - X[nt:length(X)])^2) / (ne - 1)), 4), ", ", round(sqrt( sum( (x.hat1 - X[nt:length(X)])^2) / (ne - 1)), 4), sep="")
 plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", sub=sublab, xlab="day", ylab="[°C]")
 mtext(paste(" BIC = ", round(es_0$BIC, 4), ", ", round(es_1$BIC, 4), sep=""))
@@ -1854,6 +1904,7 @@ Using an `ets` method from the `forecast` package we obtain the same best model:
 require(forecast)
 ( fc_ets <- ets(x) )
 plot(fc_ets)
+
 ```
 
 As we notice, the value of smoothing parameter $\alpha$ closer to 1 has a much more subtle smoothing effect than that of models with smaller $\alpha$s. The `ets` method examines a much larger search space than the one we chose for demonstration. In fact, it tests for multiple available combinations of ETS models with additional parameters: $\beta$ (trend), $\gamma$ (season), and $\phi$ (trend damping).
@@ -1868,7 +1919,30 @@ lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
 
 ### 7.3 Single and Multi-Step Prediction Estimates
 
-Each state variable is a 1-step prediction of the previous values. This makes 1-step predictions relatively straight-forward, as observed on eval parts of chosen models in the beginning of section 7.1. To predict $h > 1$ steps ahead we make use of the state space equations to accumulate the levels as well as additional ES parameters:
+Each state variable is a 1-step prediction of the previous values. This makes 1-step predictions relatively straight-forward, as observed on eval parts of chosen models in the beginning of section 7.1. To predict $h > 1$ steps ahead we make use of the state space equations to accumulate the levels as well as additional ES parameters. <br/>
+  For an additive damped ETS model with trend we use:
+
+  $a_t = \alpha  x_t + (1 - \alpha) (a_{t - 1} + \phi b_{t - 1})$ <br/>
+  $b_t = \beta (a_t - a_{t - 1}) + (1 - \beta) \phi  b_{t - 1}$ <br/>
+  $\hat{x}_{t|t-1} = a_{t - 1} + \phi b_{t - 1}$ <br/>
+  
+  and  <br/>
+  
+  $a_t = \alpha  x_t + (1 - \alpha) (a_{t - 1} b_{t - 1}^{\phi})$ <br/>
+  $b_t = \beta (a_t / a_{t - 1}) + (1 - \beta) b_{t - 1}^{\phi}$ <br/>
+  $\hat{x}_{t|t-1} = a_{t - 1} b_{t - 1}^{\phi}$ <br/>
+  
+  for the multiplicative trend. Both with a damping coefficient $\phi$.
+
+The $h$-step predictions will then be carried out as followed: <br/>
+
+  $\hat{x}_{t + h|t} = a_{t} + (\phi + \phi^2 + ... + \phi^h) b_{t}$ <br/>
+
+for an additive trend, and: <br/>
+
+  $\hat{x}_{t + h|t} = a_{t} + b_{t}^{(\phi + \phi^2 + ... + \phi^h)}$ <br/>
+  
+for a multiplicative trend.
 
 ```{r}
 
@@ -1963,15 +2037,54 @@ legend("bottomleft", legend=c("beta = 0.01", "beta = 0.4"), col=c(hsv((32 - 28 *
 Naturally, we want to choose $\beta$ such that the damped trend predictions describe the evaluation part most accurately.
 
 ```{r longTermBetaPred, fig.width=10, fig.height=5}
-h2pred <- Holt(x, alpha=alpha, beta=optim_beta, lead = h, damped=T, plot=F)$pred
-plot(x, type="l", xlim=c(nt - h, nt + h), main=paste("Damped 2-parametric ",h,"-step prediction", sep=""), xlab="day", ylab="[°C]")
+holt_damped <- Holt(x, alpha=alpha, beta=optim_beta, lead = h, damped=T, plot=F)
+h2pred <- holt_damped$pred
+plot(x, type="p", xlim=c(nt - h, nt + h), main=paste("Damped 2-parametric ",h,"-step prediction", sep=""), xlab="day", ylab="[°C]")
 mtext(paste("alpha = ",alpha, ", beta = ", optim_beta ,sep=""))
-  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
-  lines(x=nt:(nt + 1), y=c(x[nt], h2pred[1]), col="blue2", lwd=2, lty=2)
-  lines(x=(nt + 1):(nt + h), y=h2pred, col="blue2", lwd=2)
-  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "data"),
-         col=c("blue2","red"), lty=c(1, NA), lwd=2 , cex=0.8, pch=c(NA, 20))
+lines(x=1:nt, y=simpleExpSmooth(x, alpha)$x.hat, lwd=2, lty=2, col="red2")
+lines(x=1:nt, y=holt_damped$estimate, lwd=2, col="green3")
+lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
+lines(x=nt:(nt + 1), y=c(x[nt], h2pred[1]), col="blue2", lwd=2, lty=2)
+lines(x=(nt + 1):(nt + h), y=h2pred, col="blue2", lwd=2)
+legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "simple es", "damped Holt", "data"),
+       col=c("blue2", "red2", "green3","red"), lty=c(1, 2, 1, NA), lwd=2 , cex=0.8, pch=c(NA, NA, NA, 20))
 ```
 
 ### 7.4 ETS Model Comparison (Conclusion)
 
+Since the data contains no apparent or significant trend, nor seasonality, we only examined simple ETS models. The first two results of a $BIC$ search are:
+
+```{r}
+bestEts[1:2,]
+```
+
+The $\alpha$ parameter values do not differ much from one another and they correspond to the search from `forecast`'s `ets` function, hence we settle down for $\alpha = 0.747$.
+However if we include damped trend with $\beta = 0.25$ and damping coefficient $\phi = 0.98$ (included in `Holt` method from `aTSA` package) we get a closer fit with $\sigma_{\varepsilon}^2$:
+
+```{r}
+RSS <- sum((holt_damped$estimate - x)^2)
+RSS / (nt - 3)
+```
+and $BIC$:
+
+```{r}
+nt * log(sum((holt_damped$estimate - x)^2)) + 4 * log(nt)
+```
+
+We can compare the predictive abilities of models $ETS(A,N,N)$ and $ETS(A,A_d,N)$ with the DM test:
+
+```{r}
+ses_whole <- simpleExpSmooth(X, alpha=alpha)
+holt_damped_whole <- Holt(X, alpha=alpha, beta=optim_beta, damped=T, plot=F)
+
+e_1 <- ses_whole$x.hat[(nt + 1):length(X)] - X[(nt + 1):length(X)]
+e_2 <- holt_damped_whole$estimate[(nt + 1):length(X)] - X[(nt + 1):length(X)]
+
+dm.test(e_1, e_2)
+```
+
+which suggests significantly better predictive properties of the simple $ETS(A,N,N)$ with $\alpha = 0.747$.
+
+## Discussion
+
+We have evaluated 
