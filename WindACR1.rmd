@@ -1286,7 +1286,7 @@ And unless we take global warming (a possible trend), for example, into account 
  
 ## 6. Non-Stationary Models
  
-ARMA type models can be used when we safely assume stationarity of the time series. Namely, when the series has a constant variance its mean values and covariances only depend on the lag, not on time. Although ARMA models seem to sufficiently describe the given time series, we may want to try out the so called Integrated processes, and conditionally heteroskedastic processes.
+ARMA type models can be used when we safely assume stationarity of the time series. Namely, when the series has a constant variance its mean values and covariances only depend on the lag, not on time. Although ARMA models seem to sufficiently describe the given time series, we may want to try out the so called Integrated processes.
  
 ### 6.1. Diagnostic Tests
  
@@ -1294,7 +1294,7 @@ First we will test whether the original time series after extracting the seasona
  
 #### 6.1.1 Dickey-Fuller Test (DF)
  
-The null hypothesis of the DF test states: $x_t = x_{t-1} + e_t$, that is, the time series is a realization of a random walk process. It is carried out by setting $\Delta x_t = x_t - x_{t-1} = \rho \ x_{t-1} + e_t$ where $e_t$ is an i.i.d process. It suffices to show that the $\rho$ parameter of such regression equals zero. In general the regression may assume $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ with additional parameters $\mu$ (mean value) and $\delta$ (deterministic drift).
+The null hypothesis of the DF test states: $x_t = x_{t-1} + e_t$, that is, the time series is a realization of a random walk process. It is carried out by setting $\Delta x_t = x_t - x_{t-1} = \rho \ x_{t-1} + e_t$ where $e_t$ is an i.i.d process. It suffices to show that the $\rho$ parameter of such regression equals zero. In general, the regression may assume $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ with additional parameters $\mu$ (mean value) and $\delta$ (deterministic drift).
 
 ```{r}
 x <- temp_test$Tres
@@ -1305,8 +1305,7 @@ m <- length(dx)
 xt1 <- x[1:m]
 tt <- 1:m
 reg <- lm(dx ~ xt1 + 1 + tt)
-
-( reg.sum <- summary(reg) )
+reg.sum <- summary(reg)
 ```
 
 And after the regression of the difference time series we proceed to compute the $DF$-statistic from the `rho` parameter
@@ -1326,21 +1325,22 @@ sampleSizes <- c(25, 50, 100, 250, 500, 100000) # sample size
 
 ( critVal <- approx(sampleSizes, critVals, m, rule=2)$y )
 
-if (DFstat < critVal) {
-  message(paste(" DF = ", round(DFstat, digits=4), " < ", critVal ,", rho = ", round(rho, digits=4),
+if (DFstat >= critVal) {
+  message(paste(" DF = ", round(DFstat, digits=4), " > ", critVal ,", rho = ", round(rho, digits=4),
                 " ::: Null Hypothesis accepted. Possible stochastic trend."))
 } else {
-  message(paste(" DF = ", round(DFstat, digits=4), " > ", critVal, ", rho = ", round(rho, digits=4),
+  message(paste(" DF = ", round(DFstat, digits=4), " < ", critVal, ", rho = ", round(rho, digits=4),
                 " ::: Null Hypothesis rejected. Stochastic trend insignificant."))
 }
 ```
 
-The presence of a stochastic trend for process $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ is accepted on a 5% significance level. This means that the time series may be modelled as an integrated process. We can compare the results with the inbuilt `adf.test` function from `tseries` package:
+The presence of a stochastic trend for process $\Delta x_t = \mu + \delta \ t + \rho \ x_{t-1} + e_t$ is rejected on a 5% significance level. This means that the residual time series after extracting the seasonal deterministic should not be modelled as an integrated process. We can compare the results with the inbuilt `adf.test` function from `tseries` package:
 
 ```{r}
 require(tseries)
 adf.test(x, k = 0) # k = 0 corresponds to lag = 1
 ```
+
 
 #### 6.1.2 Augmented Dickey-Fuller Test (ADF)
  
@@ -1396,7 +1396,7 @@ pval <- approx(table, tablep, kpssStat, rule=2)$y
 c(KPSS=kpssStat, pval=pval)
 ```
 
-As it appears, the stationarity null hypothesis is rejected. With `pvalue > 0.1`. The same result can be obtained using the `kpss.test` function from the `tseries` package:
+As it appears, the stationarity null hypothesis is accepted. With `pvalue > 0.1`. The same result can be obtained using the `kpss.test` function from the `tseries` package:
 
 ```{r}
 ( testNDrift <- kpss.test(x, null="Level") )
@@ -1426,7 +1426,7 @@ pval <- approx(table2, tablep, kpssStat, rule=2)$y
 c(KPSS=kpssStat, pval=pval)
 ```
 
-This is possibly due to the cut-off of the test part of the time series, which does not entail its entire 365-day period. The test can also be carried out for larger values of truncation lag parameter:
+we reject the stationarity about a trend null hypothesis. The test can also be carried out for larger values of truncation lag parameter:
 
 ```{r}
 kpss.test(x, null="Level", lshort = F)
@@ -1434,51 +1434,30 @@ kpss.test(x, null="Trend", lshort = F)
 ```
 
 ### 6.2 Identifying Models of Integrated Processes
- 
-We analyze the time series visually:
 
-```{r integRegressionAcf0, fig.width=10, fig.height=4, echo=FALSE}
-par(mfrow=c(1,3))
-plot(x=temp_test$time, y=x, main="x_t",xlab="day",ylab="T[°C]",axes=F, type="l")
-axis(side=1, at=seq(1, 365, 7))
-axis(side=2, at=seq(round(min(x), digits=1), round(max(x), digits=1), by=2))
-box()
-
-ACF <- acf(x, lag.max=50, plot=F)
-lags <- which(abs(acf(x, lag.max=50, main="ACF")$acf[-1]) > 2/sqrt(n))
-lagValues <- numeric()
-for(i in 1:length(lags)) {
-  lagValues[i] <- ACF$acf[lags[i] + 1]
-  segments(lags[i], 0, lags[i], lagValues[i], col= "red", lwd=2)
-}
-acf(x, lag.max=50, main="PACF", type="partial")
-```
-
-The ACF and PACF plots above might suggest which correlation lags remain in the residues after extracting the seasonal component. More precisely:
-
-```{r}
-data.frame(cbind(lag=lags, ACF=lagValues))
-```
-
-The correlation within the data is the highest for $L=1, ... , 5$ and then for $L=44$ and $L=45$. Aside from that, it seems that the time series does not need any stabilisation or differentiation, hence we will consider the original data denoted as `x`. And taking also the conclusions of the previous tests into account, we can proceed to model the data as integrated processes.
- First, we need to estimate the difference order $d$. For most processes $d = 1$. The remaining parameters can be automatically estimated via a search function, for example:
-
-```{r}
-require(forecast)
-auto.arima(x, d=1, ic = "bic")
-```
-
-However if we do not specify a difference order, the `auto.arima` method 
-
+The diagnostic tests carried out in the previous section suggest that the residuals `temp_test$Tres` are generated by a stationary stochastic process. 
+  The `auto.arima` method from the `forecast` package searches through a multitude of combinations of parameters, just like we did in section 4 when searching for the best ARMA model:
+  
 ```{r}
 auto.arima(x, ic = "bic")
 ```
 
-returns the best estimate equivalent to an $ARMA(1, 0)$ model, which is what the Hannan-Rissanen procedure in section 4 returned. This means that the prior ARMA estimation provided better results. The estimation procedures however, do not consider the possibility that we may be dealing with a process with long memory (ARFIMA), thus we will attempt to model the time series `x` as different integrated processes of type ARIMA, SARIMA or alternatively ARFIMA and GARCH models respectively.
+The result corresponds to the best ARMA model, and thus confirms the validity of our approach in section 4.
+
+The original time series without the deterministic annual wave caused by the Earth's tilt during orbit around the Sun could still be modeled as a non-stationary process (about some deterministic wave).
+  If we apply the same `auto.arima` method on the original time series without deterministic seasonal component:
+
+```{r}
+x <- as.numeric(temp_test$T)
+auto.arima(x, ic = "bic")
+```
+
+This means that the original temperature data can be modeled as an ARIMA process with $d = 1$.
  
 #### 6.2.1 ARIMA
  
-Since we have already searched for ARIMA type models in the search space of the time series, we only need to consider processes of integration order $d > 0$. For comparison we consiter models with $d = 0$ which we analyzed in sections 4 and 5.
+Unlike the method from the `forecast` package, we will not consider seasonality in our data, particularly due to the fact that it does not even contain the whole annual set of observation. Modeling seasonality through a SARIMA model would require at least two periods in the test part of the time series alone.
+    For the purpose of this presentation we search through a $5 \times 2 \times 5$ grid of $(p, d, q)$ triples:
 
 ```{r}
 pmax = 5; qmax = 5; dmax = 2;
@@ -1507,95 +1486,14 @@ bic <- models.arima[6]
 bestArima <- models.arima[order(bic),]
 head(bestArima)
 ```
-
- And notice how models of integrated processes occupy the first 6 places, even though the best model is a stationary $ARMA(1,0)$. For future use we can just filter the models with $d > 0$:
-
-```{r}
-bestArima1 <- bestArima[which(bestArima[2] == 1),]
-head(bestArima1)
-```
-
-#### 6.2.2 SARIMA
  
-Seasonal Auto-Regressive Integrated Moving-Average type models use the fact that for each value $x_t$ the model retains memory from its previous period of length $L$, of potentially $D$-th difference, giving rise to additional parameters
- $(P, D, Q)$ and $L$ to an ARIMA model.
- For example we can model the residual time series as a $SARIMA(1,1,1)\times (1,1,1)[10]$ (with a 10-day period):
-
-```{r}
-( mod <- arima(x, order=c(1,1,1), seasonal=list(order=c(1,1,1), period=10)) )
-```
-
-and compare the results with an $ARIMA(1,1,1)$ model:
-
-```{r arimavssarima, fig.width=10, fig.height=4}
-mod2 <- arima(x, order=c(1,1,1))
-
-plot(x, xlab="day", ylab="[°C]", main="ARIMA vs SARIMA")
-lines(x - mod2$residuals, col="blue", lwd=2)
-lines(x - mod$residuals, col="red", lwd=2)
-legend("topleft", legend=c("ARIMA(1,1,1)","SARIMA(1,1,1)x(1,1,1)[10]"),
-       col=c("blue","red"), lty=1, bty="o",lwd=2 , cex=0.8)
-```
-
-We notice how the SARIMA model fits the values within the first period almost completely. The model residuals approach zero since the model has no previous period to base its fitted values upon. 
-  However, it should be noted that quite possibly, all of the actual seasonality (not including any cycles of less than 365-day length) has
-been filtered out. We can still forcibly model the residuals as a SARIMA process. 
-  To do so we must search through a much larger parameter space (7-dimensional instead of the 3-dimensional as previously in the case of ARIMA models). This will, of course take a substantial amount of time. After searching through combinations of ARIMA $(p,d,q)$ and SARIMA parameters $(P,D,Q)$ for periods $L = 13, 16, 22$ and $45$ days, we chose the following orders:
-
-```{r}
-sarimaParams <- list(
-  list(p=1, d=0, q=0, P=0, D=1, Q=1),
-  list(p=1, d=0, q=1, P=0, D=1, Q=1),
-  list(p=2, d=0, q=0, P=0, D=1, Q=1),
-  list(p=0, d=1, q=2, P=0, D=1, Q=1),
-  list(p=2, d=1, q=1, P=0, D=1, Q=1)
-)
-
-sarimaPeriods <- c(13, 16, 22, 45)
-```
-
-which we plug into the `arima` method into `seasonal` parameter to obtain the following SARIMA-type models:
-
-```{r}
-models.sarima <- list()
-for (L in sarimaPeriods) {
-  for (i in 1:length(sarimaParams)) {
-    p = sarimaParams[[i]]$p; d = sarimaParams[[i]]$d; q = sarimaParams[[i]]$q;
-    P = sarimaParams[[i]]$P; D = sarimaParams[[i]]$D; Q = sarimaParams[[i]]$Q;
-    model <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
-    key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
-    
-    models.sarima[[key]] <- c(p=p, d=d, q=q, P=P, D=D, Q=Q, L=L, rss=model$sigma2, AIC=model$aic, BIC=InfCrit(model, type="BIC"))
-  }
-}
-
-models.sarima <- data.frame(matrix(unlist(models.sarima), nrow=length(models.sarima), byrow=T))
-names(models.sarima) <- c("p", "d", "q", "P", "D", "Q", "L", "RSS", "AIC", "BIC")
-head(models.sarima)
-
-bic <- models.sarima[10]
-bestSarima <- models.sarima[order(bic),]
-head(bestSarima)
-```
-
-The SARIMA periods were chosen by searching through a much larger parameter space (with incremental periods 1 to 49). For the purposes of this presentation, we omit the procedure to save computation time. Even though the resulting models have a lower BIC their accuracy should be taken with some skepticism, since there are no naturally occuring cycles in the annual temperature measurements aside from a 365-day period.
- 
-#### 6.2.3 ARFIMA
+#### 6.2.2 ARFIMA
  
 So far we have restricted ourselves to searching through parameter spaces of smaller lag order values (for the sake of reducing computation time). There is however, an alternative for modelling ARIMA-type processes with long memory. This may assess the fact that the nonzero values of the data's ACF still appear after 30 steps.
 
 ```{r}
 suppressMessages(pkgTest("fracdiff"))
-model.fd <- fracdiff(x, nar=1, nma=0)
-model.fd$d
-
-model.fd$log.likelihood
-
-summary(modelf <- forecast::arfima(x))
-
-plot(forecast::forecast(modelf, h=100))
-
-pmax = 5; qmax = 5;
+pmax = 5; qmax = 5; 
 models.arfima <- list()
 for (p in 0:pmax) {
   for (q in 0:qmax) {
@@ -1616,114 +1514,55 @@ bic <- models.arfima[5]
 bestArfima <- models.arfima[order(bic),]
 head(bestArfima)
 ```
-
-#### 6.2.4 GARCH 
- 
-Short for Generalized Auto-Regressive Conditionally Heteroskedastic, this set of models owe their non-stationary properties to non-constant local variance (skedasticity) in time. This model is mainly used 
-
-```{r}
-library(lmtest)
-( bpres_studentized <- bptest(model.cCos, studentize=T) )
-( bpres_nstud <- bptest(model.cCos, studentize=F) )
-```
-
-In our case the `bptest` suggests homoskedasticity of the used systematic regression (both studentized and not studentized versions). For non-studentized BP-test homoskedasticity almost gets accepted at just above 5%. This means that our data (now `x`) might not be suitable for an ARCH-type model. Nonetheless we can choose the residuals of a model we deem most fit for `x`:
-
-```{r garchData, fig.width=7, fig.height=4}
-par(mfrow=c(1,2))
-acf(x, lag=50, main="resid ACF")
-acf(x, lag=50, main="resid PACF", type="partial")
-```
-
-The residuals `x` of the seasonal model `sCos` seem to be slightly correlated. This correlation is well assessed by ARIMA type models. Nevertheless if we will attempt to model them as a conditionally heteroskedastic model. For a generalized ARCH (GARCH) model we have 2 parameters `p` and `q` to choose. They are analogous to AR and MA terms, except they are also used as dimensions for another regression, namely for $\sigma_t^2$ which is the square series of the varying residuals. 
-
-```{r garchACF, fig.width=10, fig.height=4}
-require(tseries)
-p <- 1; q <- 0;
-summary(modelGarch <- garch(x, order=c(p, q), trace=F))
-garch_res <- modelGarch$residuals
-garch_res <- na.omit(garch_res)
-
-par(mfrow=c(1,1))
-plot(x, xlab="day", ylab="[°C]", main="ARIMA vs GARCH")
-lines(x - mod2$residuals, col="cornflowerblue", lwd=2)
-lines(x - modelGarch$residuals, col="coral4", lwd=2)
-legend("topleft", legend=c("ARIMA(1,1,1)","GARCH(1,0)"),
-       col=c("cornflowerblue","coral4"), lty=1, bty="o",lwd=2 , cex=0.8)
-
-par(mfrow=c(1,2))
-acf(garch_res, lag=50, main=paste("GARCH(",p,",",q,") res"))
-acf(garch_res, lag=50, main=paste("GARCH(",p,",",q,") res"), type="partial")
-
-```
-
-The results suggest that a GARCH fit has no effect on the correlation of residuals `x`. Also considering the fact that the BP test confirmed the data's homoskedasticity, we should not use this model at all.
  
 ### 6.3 Predictive Properties of the Chosen Models
  
-```{r predictComparison, fig.width=11, fig.height=5.5}
-X <- model.sCos$residuals
+```{r predictComparison, fig.width=10, fig.height=4.5}
+X <- as.numeric(temp$T)
 
 par(mfrow=c(1,1))
 plot_models <- vector()
 
 model1_id <- 1;
 p = bestArima[model1_id, 1]; d = bestArima[model1_id, 2]; q = bestArima[model1_id, 3];
-key <- paste("(",p,",",q,")", sep="")
-name <- paste("ARMA", key, sep="")
+key <- paste("(",p,",",d,",",q,")", sep="")
+name <- paste("ARIMA", key, sep="")
 plot_models[1] <- name
 
-ARMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)), xreg=model.sCos)), ne)
+ARIMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)))), ne)
 
-model2_id <- 1;
-p = bestArima1[model2_id, 1]; d = bestArima1[model2_id, 2]; q = bestArima1[model2_id, 3];
+model2_id <- 2;
+p = bestArima[model2_id, 1]; d = bestArima[model2_id, 2]; q = bestArima[model2_id, 3];
 key <- paste("(",p,",",d,",",q,")", sep="")
 name <- paste("ARIMA", key, sep="")
 plot_models[2] <- name
 
-ARIMA_predict <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)), xreg=model.sCos)), ne)
+ARIMA_predict1 <- tail(fitted(Arima(X, order=c(p,d,q), model=arima(x, order=c(p,d,q)))), ne)
 
-model3_id <- 2;
-p = bestSarima[model3_id, 1]; d = bestSarima[model3_id, 2]; q = bestSarima[model3_id, 3];
-P = bestSarima[model3_id, 4]; D = bestSarima[model3_id, 5]; Q = bestSarima[model3_id, 6];
-L = bestSarima[model3_id, 7];
-key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
-name <- paste("SARIMA", key, sep="")
-plot_models[3] <- name
-
-SARIMA_predict <- tail(fitted(
-  Arima(X, order=c(p,d,q), 
-        model=arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L)), 
-        seasonal=list(order=c(P,D,Q), period=L)), xreg=model.sCos), ne)
 
 model4_id <- 1;
 p = bestArfima[model4_id, 1]; d = bestArfima[model4_id, 2]; q = bestArfima[model4_id, 3];
 key <- paste("(",p,",",round(d,2),",",q,")", sep="")
 name <- paste("ARFIMA", key, sep="")
-plot_models[4] <- name
+plot_models[3] <- name
 
-ARFIMA_predict <- tail(fitted(arfima(X, drange=c(0, d), model=fracdiff(x, nar=p, nma=q)), xreg=model.sCos), ne)
+ARFIMA_predict <- tail(fitted(arfima(X, drange=c(0, d), model=fracdiff(x, nar=p, nma=q))), ne)
 
-x_test <- x + temp_test$sCos
-ARMA_predict <- as.numeric(ARMA_predict + temp_eval$sCos)
-ARIMA_predict <- as.numeric(ARIMA_predict + temp_eval$sCos)
-SARIMA_predict <- as.numeric(SARIMA_predict + temp_eval$sCos)
-ARFIMA_predict <- as.numeric(ARFIMA_predict + temp_eval$sCos)
+x_test <- x
 
-colors <- c(hsv((9.5 - 2) / 8), hsv((9.5 - 3) / 8), hsv((9.5 - 5) / 8), hsv(h=(9.5 - 7) / 8, v=0.7))
+colors <- c(hsv((9.5 - 2) / 8), hsv((9.5 - 3) / 8), hsv((9.5 - 5) / 8))
 
 plot(x_test, type="l", 
      xlim=c(floor(0.9*length(x)), length(X)), ylim=c(3.5, 17),
      main="1-step predictions of chosen models", xlab="day", ylab="[°C]")
 lines(x=nt:(nt + 1), y=temp$T[nt:(nt + 1)])
-lines(x=(nt + 1):(nt + ne), y=ARMA_predict, lwd=2, col=colors[1], type="l")
-lines(x=(nt + 1):(nt + ne), y=ARIMA_predict, lwd=2, col=colors[2], type="l")
-lines(x=(nt + 1):(nt + ne), y=SARIMA_predict, lwd=2, col=colors[3], type="l")
-lines(x=(nt + 1):(nt + ne), y=ARFIMA_predict, lwd=2, col=colors[4], type="l")
+lines(x=(nt + 1):(nt + ne), y=ARIMA_predict, lwd=2, col=colors[1], type="l")
+lines(x=(nt + 1):(nt + ne), y=ARIMA_predict1, lwd=2, col=colors[2], type="l")
+lines(x=(nt + 1):(nt + ne), y=ARFIMA_predict, lwd=2, col=colors[3], type="l")
 
 lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="black", type="p", pch=1)
 legend("bottomleft", legend=c(plot_models,"data"),
-       col=c(colors, "black"), lty=c(1, 1, 1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, NA, NA, 1))
+       col=c(colors, "black"), lty=c(1, 1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, NA, 1))
 ```
 
 We also consider the predictive properties of the chosen set of models. We will be comparing the top 6 models from each type  (ARIMA, SARIMA, ARFIMA), more specifically according to the root mean square error (RMSE) of 1-step predictions
@@ -1737,27 +1576,22 @@ xp_resids <- list()
 library(forecast)
 par(mfrow=c(1,2))
 for (i in 1:6) {
-  p = bestArima1[i,1]; d = bestArima1[i,2]; q = bestArima1[i,3];
+  p = bestArima[i,1]; d = bestArima[i,2]; q = bestArima[i,3];
   key <- paste("(",p,",",d,",",q,")", sep="")
   name <- paste("ARIMA", key, sep="")
 
   model_estim <- arima(x, order=c(p,d,q))
-  model <- Arima(X, order=c(p,d,q), model=model_estim, xreg=model.sCos)
+  model <- Arima(X, order=c(p,d,q), model=model_estim)
 
   xp <- tail(fitted(model), ne)
   fc <- forecast(model_estim, h=ne)
   
-  xp_res <- temp_eval$Tres - xp
+  xp_res <- temp_eval$T - xp
   rmse <- sqrt(mean(xp_res^2))
   rmse_h <- sqrt(mean((fc$mean - xp)^2))
   errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestArima[i, 6], 3))
   xp_resids[[name]] <- xp_res
 
-  fc$mean <- fc$mean + temp_eval$sCos
-  fc$lower <- fc$lower + temp_eval$sCos
-  fc$upper <- fc$upper + temp_eval$sCos
-  fc$x <- fc$x + temp_test$sCos
-  xp <- xp + temp_eval$sCos
   plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
   mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
@@ -1767,63 +1601,8 @@ for (i in 1:6) {
 }
 ```
 
-#### 6.3.2 SARIMA
 
-```{r sarimaPreds, fig.width=12, fig.height=5}
-par(mfrow=c(1,2))
-for (i in 1:6) {
-  p = bestSarima[i, 1]; d = bestSarima[i, 2]; q = bestSarima[i, 3];
-  P = bestSarima[i, 4]; D = bestSarima[i, 5]; Q = bestSarima[i, 6];
-  L = bestSarima[i, 7];
-  key <- paste("(",p,",",d,",",q,")(",P,",",D,",",Q,")[",L,"]", sep="")
-  name <- paste(ifelse(P + D + Q > 0, "S", ""),"ARIMA", key, sep="")
-  
-  model_estim <- arima(x, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L))
-  tmp <- tryCatch(
-    Arima(X, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L), xreg=model.matrix(model.sCos))
-    , error=function(e) e, warning=function(w) w)
-  if (length(tmp$message) == 0) {
-    model <- tmp
-  } else {
-    model <- Arima(X, order=c(p,d,q), seasonal=list(order=c(P,D,Q), period=L)) # for some models using xreg results in a singular reg matrix
-  }
-  
-  xp <- tail(fitted(model), ne)
-  fc <- forecast(model_estim, h=ne)
-  
-  xp_res <- temp_eval$Tres - xp
-  rmse <- sqrt(mean(xp_res^2))
-  rmse_h <- sqrt(mean((fc$mean - xp)^2))
-  errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestSarima[i, 10], 3))
-  xp_resids[[name]] <- xp_res
-  
-  fc$mean <- fc$mean + temp_eval$sCos
-  fc$lower <- fc$lower + temp_eval$sCos
-  fc$upper <- fc$upper + temp_eval$sCos
-  fc$x <- fc$x + temp_test$sCos
-  xp <- xp + temp_eval$sCos
-  plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
-  mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
-  lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
-  lines(x=(nt + 1):(nt + ne), y=temp_eval$T, lwd=2, col="red", type="p", pch=20)
-  legend("bottomleft", legend=c(paste("prediction (", ne,"-step)", sep=""), "1-step prediction","data"),
-         col=c("blue", "green4","red"), lty=c(1, 1, NA),lwd=2 , cex=0.8, pch=c(NA, NA, 20))
-}
-```
-
-Here we notice that the stabilisation effect in prediction values is not present in SARIMA `ne`-step predictions (length of the eval. part). This is caused by the periodic correlation within the series. Each step is correlated not only up to `p` steps in true history, `q` steps in noise history, with `d`-th unit root order, but also the same combination of correlations `L` steps into the past. This is the reason why the fitted values seem to copy the time series in its first period, and then follow with the "memory" of this preceding section. Predicting an arbitrary number of steps will result in a repeating periodic pattern which does not decay, since it regresses against its values so far back.
- 
-In the prediction plots we notice that some models, particularly those with higher MA degree, differ quite substantially in the multiple-step prediction mean value compared to single-step predictions. This is most most noticeable in model:
-
-```{r}
-diffRMSE <- lapply(errors, function(e) c(model=e[1], dRMSE=abs(as.numeric(e[2]) - as.numeric(e[3]))))
-diffRMSE <- data.frame(matrix(unlist(diffRMSE), nrow=length(diffRMSE), byrow=T))
-names(diffRMSE) <- c("model", "dRMSE")
-dRMSE <- diffRMSE[2]
-( dRMSEmax <- diffRMSE[order(dRMSE, decreasing=T),][1,] )
-```
-
-#### 6.3.3 ARFIMA
+#### 6.3.2 ARFIMA
 
 ```{r arfimaPreds, fig.width=12, fig.height=5}
 library(fracdiff)
@@ -1835,22 +1614,17 @@ for (i in 1:6) {
   name <- paste("ARFIMA", key, sep="")
 
   model_estim <- fracdiff(x, nar=p, nma=q)
-  model <- arfima(X, drange=c(0, d), model=model_estim, xreg=model.sCos)
+  model <- arfima(X, drange=c(0, d), model=model_estim)
   
   xp <- tail(fitted(model), ne)
   fc <- forecast(model_estim, h=ne)
   
-  xp_res <- temp_eval$Tres - xp
+  xp_res <- temp_eval$T - xp
   rmse <- sqrt(mean(xp_res^2))
   rmse_h <- sqrt(mean((fc$mean - xp)^2))
   errors[[name]] <- c(model=name, RMSE=round(rmse, 5), RMSE_ne=round(rmse_h, 5), BIC=round(bestArfima[i, 5], 3))
   xp_resids[[name]] <- xp_res
   
-  fc$mean <- fc$mean + temp_eval$sCos
-  fc$lower <- fc$lower + temp_eval$sCos
-  fc$upper <- fc$upper + temp_eval$sCos
-  fc$x <- fc$x + temp_test$sCos
-  xp <- xp + temp_eval$sCos
   plot(fc, lwd=1, xlab="day", ylab="[°C]", main=name, xlim=c(floor(0.6*length(x)), length(X)))
   mtext(paste(" RMSE(1) = ", round(rmse, digits=3), " ,  RMSE(", ne, ") = ", round(rmse_h, digits=3), sep=""))
   lines(x=(nt + 1):(nt + ne), y=xp, lwd=2, col="green4", type="l")
@@ -1863,7 +1637,7 @@ for (i in 1:6) {
 
 #### 6.3.4 Comparison of Predictive Properties
 
-So far, we have chosen 6 best models from each category (ARIMA, SARIMA, ARFIMA) of integrated processes. These 18 possibilities (23 if we include ARMA models from section 4) have to be sorted according to their predictive properties, namely errors and DM test. Since an $18 \times 18$ (or $23 \times 23$ if we also include ARMA models) Diebold-Mariano matrix seems too large for practical purposes, we will choose 5 models from all  categories with the lowest `RMSE` of single-step predictions.
+So far, we have chosen 6 best models from categories ARIMA and ARFIMA of integrated processes. These 12 possibilities (17 if we include ARMA models from section 4) have to be sorted according to their predictive properties, namely errors and DM test. Since an $12 \times 12$ (or $17 \times 17$ if we also include ARMA models) Diebold-Mariano matrix seems too large for practical purposes, we will choose 5 models from all  categories with the lowest `RMSE` of single-step predictions.
 
 ```{r}
 # we can also include errors from top 5 ARMA list
@@ -1881,7 +1655,7 @@ names(errors) <- c("model", "RMSE(1)", paste("RMSE(", ne, ")", sep=""), "BIC")
 # sort by RMSE(1)
 rmse1 <- errors[2]
 lowestRMSE1_resids <- xp_resids[order(rmse1),]
-( lowestRMSE1 <- errors[order(rmse1),] )
+lowestRMSE1 <- errors[order(rmse1),]
 ```
 
 And the 5 models with the lowest RMSE are:
@@ -1910,11 +1684,11 @@ DieboldMarianoMatrix
 pvalueMatrix
 ```
 
-We observe that there are no significant differences between models. Perhaps the 5th and 6th model seem to have most significantly different predictive abilities from the very first. However, if we take into account that none of the SARIMA models we tested have a period grounded in measureable reality, we clearly see why there are no significant differences among the models, as sorted by their `RMSE` errors in ascending order. Significant differences appear only as we increase the dimension of the `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities:
+We observe that there are no significant differences between models. Perhaps the 6th model seems to have the most significantly different predictive abilities from 3rd and 5th model. Significant differences appear only as we increase the dimension of the `DieboldMarianoMatrix` to 23 (all models). With ARIMA and some ARFIMA models having significantly better predictive abilities:
 
 ```{r}
 better_than <- list()
-npred_models <- 23
+npred_models <- 17
 #DieboldMarianoMatrix <- matrix(0, ncol=npred_models, nrow=npred_models)
 #pvalueMatrix <- matrix(1, ncol=npred_models, nrow=npred_models)
 for(i in 1:npred_models) {
@@ -1934,31 +1708,12 @@ names(better_than) <- c("model", "better than")
 better_than
 ```
 
-Thus according to Diebold-Mariano test, many of the previously computed ARMA-type models could have better predictive properties than some ARIMA models (and one SARIMA model). 
+Thus according to Diebold-Mariano test, only $ARIMA(2, 1, 1)$ (which is second in BIC in our grid search and first in `auto.arima`) is better than $ARIMA(1,1,2)$ (third in grid search).
  
 ### 6.4 Conclusions
   
 As the matter of fact, different types of models of integrated processes capture different properties of the time series. 
-While ARIMA models (with $d > 0$) seem to outcompete their ARMA counterparts in both $BIC$ and $RMSE$, the DM-test seems to suggest that some ARMA models provide more accurate predictions than some ARIMA models. With no other model being significantly more accurate (except for $ARIMA(0,1,3)$ being slightly more accurate than $SARIMA(1,0,1)(0,1,1)[45]$) than a SARIMA model, and also considering the sorting according to $BIC$ as well as prediction error $RMSE$, we conclude that the first few SARIMA models are the most accurate. Yet, none of the tested SARIMA models have periods grounded in actual cycles, aside from the annual, 365-day long period, of course. The data could contain some cycles we have not covered with seasonal regression with ordinary sine waves, even perhaps the prevalent 45-day cycle that seems most accurate (according to the model's $BIC$). Thus, from the following list:
-
-```{r, echo=F}
-lowestRMSE1[6:23,]
-```
-
-sorted according to $RMSE$, we emphasise the validity of $ARIMA(1,1,2)$, $ARIMA(2,1,2)$ and fractionally integrated models $ARFIMA(3,0.01,0)$ and $ARFIMA(0,0.34,0)$, as well as previously described ARMA models, such as $ARMA(1,2)$, especially considering the results shown in the table from section 6.3.4 featuring a comparison of significantly different predictive properties according to the Diebold-Mariano (DM) test.
-  We have chosen not to use models of type (G)ARCH since the BP-test of the initial seasonal model confirmed the homoskedasticity of residuals with p-values:
-
-```{r, echo=F}
-bpres_studentized$p.value
-```
-for the studentized version of the test, and
-
-```{r, echo=F}
-bpres_nstud$p.value
-```
-
-for the non-studentized version.
-  Another possible evaluation of all the evaluated models is sorting them according to their $BIC$:
+While ARIMA and ARFIMA models seem to account for much of the non-stationarity in the original time series, they have larger $BIC$ than their ARMA counterparts on the systematic residuals:
   
 ```{r, echo=F}
 bic <- as.numeric(paste(lowestRMSE1[,4]))
@@ -1968,16 +1723,8 @@ colnames(lowestBIC) <- c("model", "RMSE(1)", "BIC")
 lowestBIC
 ```
 
-Although dubious in the relevance of its 45-day period, the result featuring a list of top 5 SARIMA models with the lowest $RMSE$ also seems to correlate with the top 5 models with the lowerst $BIC$:
-  
-```{r, echo=F}
-lowestRMSE2 <- cbind(lowestRMSE1[,1:2], lowestRMSE1[,4])
-colnames(lowestRMSE2) <- c("model", "RMSE(1)", "BIC")
-head(lowestRMSE2, 5)
-head(lowestBIC, 5)
-```
-
-Thus quantitatively, SARIMA models seem to outcompete the remaining categories (in $RMSE$ and $BIC$) even though mostly ARMA and some ARIMA and ARFIMA models are the reasonable choice.
+The Diebold-Mariano test showed no significant difference in 1-step prediction property except for model $ARIMA(2, 1, 1)$, recognized as the best fit by `auto.arima` from `forecast` package.
+  Thus quantitatively, ARMA models on residuals seem to outcompete the remaining categories of integrated processes on original data.
 
 ## 7. Exponential Smoothing Methods
 
@@ -2052,7 +1799,8 @@ The errors $\epsilon_t^{Add} = x - \hat{x}_{t|t-1}$ and $\epsilon_t^{Mult} = \fr
 The model $AIC$ and $BIC$ are computed with respect to the total of two estimated parameters: initial state and $\alpha$.
 
 ```{r simpleEtsEstim, fig.width=12, fig.height=5, echo=F}
-plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
+sublab <- paste("RMSE = ", round(sqrt( sum( (x.hat0 - X[nt:length(X)])^2) / (ne - 1)), 4), ", ", round(sqrt( sum( (x.hat1 - X[nt:length(X)])^2) / (ne - 1)), 4), sep="")
+plot(x=1:length(X), y=X, main="Simple exponential smoothing, ETS(A, N, N)", sub=sublab, xlab="day", ylab="[°C]")
 mtext(paste(" BIC = ", round(es_0$BIC, 4), ", ", round(es_1$BIC, 4), sep=""))
 lines(xp0, lwd=2, col="brown")
 lines(xp1, lwd=1, lty=20, col="brown3")
@@ -2060,17 +1808,6 @@ lines(x=nt:length(X), y=x.hat0, lwd=2, col="blue")
 lines(x=nt:length(X), y=x.hat1, lwd=1, lty=20, col="blue3")
 legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-step prediction, alpha=", alpha0),
                            paste("ETS(A, N, N), alpha = ", alpha1), paste("1-step prediction, alpha=", alpha1),"data (residuals)"),
-         col=c("brown", "blue", "brown", "blue3", "black"), lty=c(1, 1, 20, 20, NA), lwd=c(2, 2, 1, 1, 1), cex=0.8, pch=c(NA, NA, NA, NA, 1))
-
-
-plot(x=1:length(X), y=temp$T, main="Simple exponential smoothing, ETS(A, N, N)", xlab="day", ylab="[°C]")
-mtext(paste("RMSE = ", round(sqrt( sum( (x.hat0 - X[nt:length(X)])^2) / (ne - 1)), 4), ", ", round(sqrt( sum( (x.hat1 - X[nt:length(X)])^2) / (ne - 1)), 4), sep=""))
-lines(xp0 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=2, col="brown")
-lines(xp1 + as.numeric(model.sCos$fitted.values[1:nt]), lwd=1, lty=20, col="brown3")
-lines(x=nt:length(X), y=x.hat0 + as.numeric(model.sCos$fitted.values[nt:length(X)]), lwd=2, col="blue")
-lines(x=nt:length(X), y=x.hat1 + as.numeric(model.sCos$fitted.values[nt:length(X)]), lwd=1, lty=20, col="blue3")
-legend("topleft", legend=c(paste("ETS(A, N, N), alpha = ", alpha0), paste("1-step prediction, alpha=", alpha0),
-                           paste("ETS(A, N, N), alpha = ", alpha1), paste("1-step prediction, alpha=", alpha1),"data (original)"),
          col=c("brown", "blue", "brown", "blue3", "black"), lty=c(1, 1, 20, 20, NA), lwd=c(2, 2, 1, 1, 1), cex=0.8, pch=c(NA, NA, NA, NA, 1))
 ```
 
@@ -2099,7 +1836,7 @@ bic <- models.ets[,4]
 bestEts <- models.ets[order(bic),]
 head(bestEts)
 
-plot(x=seq(from = 0.001, to = 0.999, by = 0.001), y=models.ets[,4], xlab="alpha", ylab="BIC", main="BIC of simple ES models", pch=20, type="b", col="blue4", ylim=c(1700, 2100))
+plot(x=seq(from = 0.001, to = 0.999, by = 0.001), y=models.ets[,4], xlab="alpha", ylab="BIC", main="BIC of simple ES models", pch=20, type="b", col="blue4", ylim=c(1700, 2500))
 mtext("\\w respect to alpha")
 lines(x=c(0, 0.95), y=c(bestEts[1,4], bestEts[1,4]), col="red", lty=2, lwd=2)
 lines(x=c(bestEts[1,1], bestEts[1,1]), y=c(0, bestEts[1,4]), col="red", lty=2, lwd=2)
@@ -2111,27 +1848,18 @@ lines(x=c(bestEts[1,1], bestEts[1,1]), y=c(0, bestEts[1,4]), col="red", lty=2, l
 
 Using an `ets` method from the `forecast` package we obtain the same best model:
 
-```{r etsEstim, fig.width=12, fig.height=5}
+```{r etsEstim, fig.width=10, fig.height=5}
 require(forecast)
 ( fc_ets <- ets(x) )
-
-fc_ets$x <- fc_ets$x + temp_test$sCos
-fc_ets.fc <- predict(fc_ets, h=ne, level=c(80, 95))
-
-fc_ets.fc$mean <- fc_ets.fc$mean + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
-fc_ets.fc$upper <- fc_ets.fc$upper + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
-fc_ets.fc$lower <- fc_ets.fc$lower + as.numeric(model.sCos$fitted.values[(nt + 1):(nt + ne)])
-
-fc_ets$states[,1] <- fc_ets$states[,1] + model.sCos$fitted.values[1:(nt + 1)]
 plot(fc_ets)
-
 ```
 
 As we notice, the value of smoothing parameter $\alpha$ closer to 1 has a much more subtle smoothing effect than that of models with smaller $\alpha$s. The `ets` method examines a much larger search space than the one we chose for demonstration. In fact, it tests for multiple available combinations of ETS models with additional parameters: $\beta$ (trend), $\gamma$ (season), and $\phi$ (trend damping).
 
   The method also allows multiple-step predictions which we can then display with seasonal fit included:
 
-```{r etsPredict, fig.width=12, fig.height=5}
+```{r etsPredict, fig.width=10, fig.height=5}
+fc_ets.fc <- predict(fc_ets, h=ne, level=c(80, 95))
 plot(fc_ets.fc)
 lines(x=1:(nt + 1), y=fc_ets$states[,1], lwd=2, lty=2, col="red")
 ```
@@ -2142,45 +1870,69 @@ Each state variable is a 1-step prediction of the previous values. This makes 1-
 
 ```{r}
 
-alpha <- bestEts[1,1]
-beta <- 0.0001; phi <- 0.78; h <- 40;
-
-ExpSmoothWithTrend <- function(x, alpha, beta = 0.1, phi = 1, h = 1, type = "additive") {
+ExpSmoothWithTrend <- function(x, alpha, beta = 0.1, phi = 1, h = 0, multiplicative = F) {
   n <- length(x)
   
   a <- c(x[1], numeric(n - 1))
   b <- numeric(n)
-  b[1] <- switch(type, additive = (x[n] - x[1]) / n, multiplicative = x[2] / x[1])
-  x.hat <- c(x[1],numeric(n-1))
+  b[1] <- ifelse(multiplicative, x[2] / x[1], (x[n] - x[1]) / n)
+  x.hat <- c(x[1], numeric(n - 1))
+
   for (i in 2:n) {
-    if (type == "additive") {
+    if (multiplicative) {
+      a[i] <- alpha * x[i] + (1 - alpha) * (a[i - 1] * b[i - 1] ^ phi)
+      b[i] <- beta * (a[i] / a[i - 1]) + (1 - beta) * b[i - 1] ^ phi
+      x.hat[i] <- a[i - 1] * b[i - 1] ^ phi
+    } else {
       a[i] <- alpha * x[i] + (1 - alpha) * (a[i - 1] + phi * b[i - 1])
       b[i] <- beta * (a[i] - a[i - 1]) + (1 - beta) * phi * b[i - 1]
       x.hat[i] <- a[i - 1] + phi * b[i - 1]
     }
-    else {
-      a[i] <- alpha * x[i] + (1 - alpha) * (a[i - 1] * b[i - 1] ^ phi)
-      b[i] <- beta * (a[i] / a[i - 1]) + (1 - beta) * b[i - 1] ^ phi
-      x.hat[i] <- a[i - 1] * b[i - 1] ^ phi
+  }
+  
+  xp <- numeric(h)
+  if (h > 0) {
+    if (multiplicative) {
+      xp <- a[n] + b[n]^(cumsum(phi^(1:h)))
+    } else {
+      xp <- a[n] + cumsum(phi^(1:h)) * b[n]
     }
   }
-
     
-    res <- (x[h:n] - x.hat.h)
-    k <- 1 # nparam
-    RSS <- sum(res^2)
-    sigma2 <- RSS / n
-    # likelihood of n NID observations
-    AIC <- n * log(RSS) + 2 * (k + 1)
-    BIC <- n * log(RSS) + (k + 1) * log(n)
-    
-    result <- list(x=x, x.hat=x.hat, res=res, RSS=RSS, sigma2=sigma2, AIC=AIC, BIC=BIC)
-    return(result)
+  res <- (x - x.hat)
+  k <- 3 # nparam
+  RSS <- sum(res^2)
+  sigma2 <- RSS / n
+  # likelihood of n NID observations
+  AIC <- n * log(RSS) + 2 * (k + 1)
+  BIC <- n * log(RSS) + (k + 1) * log(n)
+  
+  result <- list(x=x, x.hat=x.hat, x.pred=xp, res=res, RSS=RSS, sigma2=sigma2, AIC=AIC, BIC=BIC)
+  return(result)
 }
 
-require(aTSA)
-h <- 40
-plot(x, type="l", xlim=c(nt - h, nt + h), ylim=c(-7,6))
-lines(x=(nt + 1):(nt + h), y=Holt(x, lead=h, plot=F, damped=T, phi=0.92)$pred, col="blue2")
-
 ```
+
+This method was proposed by Gardner and McKenzie in 1985 as an extension of Holt's method of ES with trend. We will use trend damping ($\phi \in [0, 1]$) to estimate long-term predictions:
+
+```{r esWithDampedTrend, fig.width=10, fig.height=5}
+
+alpha <- bestEts[1,1]
+h <- ne
+
+ets_AAN <- ExpSmoothWithTrend(x, alpha, beta=0.1, phi=0.98, h)
+ets_AMN <- ExpSmoothWithTrend(x, alpha, beta=0.001, phi=0.99, h, multiplicative=T)
+
+x.pred_additive <- ets_AAN$x.pred
+x.pred_multiplicative <- ets_AMN$x.pred
+
+plot(x, type="l", xlim=c(nt - h, nt + h), main=paste(h,"-step predictions", sep=""), xlab="day", ylab="[°C]")
+mtext(paste("alpha = ",alpha ,sep=""))
+lines(x=nt:(nt + 1), y=c(x[nt], x.pred_additive[1]), col="red2", lwd=2, lty=2)
+lines(x=(nt + 1):(nt + h), y=x.pred_additive, col="red2", lwd=2)
+lines(x=nt:(nt + 1), y=c(x[nt], x.pred_multiplicative[1]), col="blue2", lwd=2, lty=2)
+lines(x=(nt + 1):(nt + h), y=x.pred_multiplicative, col="blue2", lwd=2)
+legend("topright", legend=c(paste("ETS(A,A,N), beta = ", 0.1, ", phi = ", 0.98, sep=""), paste("ETS(A,M,N), beta = ", 0.001, ", phi = ", 0.99, sep="")), col=c("red2", "blue2"), lty=c(1, 1), lwd=c(2, 2), cex=0.8)
+```
+
+The multiplicative version of this method seems to work for $\beta \ll \phi$, as the cumulative sum in the exponent causes the predictions to diverge for trend values $b_n > 1$.
